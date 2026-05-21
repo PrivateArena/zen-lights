@@ -1,5 +1,6 @@
 // Package ocr wraps PaddleOCR/RapidOCR PP-OCRv4 running on ONNX Runtime
-// and exposes a single method optimised for reading text/digits from cropped regions.
+// and exposes simple client APIs optimized for structured scoreboard ROI scraping (Mode A)
+// and full automated page layout parsing (Mode B).
 package ocr
 
 import (
@@ -7,7 +8,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +15,8 @@ import (
 
 	ort "github.com/yalue/onnxruntime_go"
 	"github.com/zen-lights/zen-lights/internal/imgutil"
+	"github.com/zen-lights/zen-lights/internal/ocr/detector"
+	"github.com/zen-lights/zen-lights/internal/ocr/recognizer"
 	"github.com/zen-lights/zen-lights/pkg/game"
 )
 
@@ -57,10 +59,18 @@ func OptionsFromConfig(c game.OCRConfig) Options {
 	return o
 }
 
-// Client holds a long-lived ONNX Runtime session configured for text recognition.
+// TextResult represents a single recognized text block with its layout coordinates.
+type TextResult struct {
+	Text       string
+	Confidence float32
+	Bounds     image.Rectangle
+}
+
+// Client holds long-lived ONNX Runtime recognition and detection sessions.
 type Client struct {
-	session *ort.DynamicAdvancedSession
-	opts    Options
+	recEngine *recognizer.Recognizer
+	detEngine *detector.Detector
+	opts      Options
 }
 
 // initORT sets the shared library path and initializes the environment.
@@ -105,9 +115,9 @@ func New(opts Options) (*Client, error) {
 		return nil, fmt.Errorf("init onnxruntime: %w", err)
 	}
 
-	// Resolve model path
-	modelPath := os.Getenv("PPOCR_MODEL_PATH")
-	if modelPath == "" {
+	// Resolve recognizer model path
+	recModelPath := os.Getenv("PPOCR_MODEL_PATH")
+	if recModelPath == "" {
 		candidates := []string{
 			"/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
 			"./models/ch_PP-OCRv4_rec_infer.onnx",
@@ -118,211 +128,140 @@ func New(opts Options) (*Client, error) {
 			abs, err := filepath.Abs(c)
 			if err == nil {
 				if _, err := os.Stat(abs); err == nil {
-					modelPath = abs
+					recModelPath = abs
 					break
 				}
 			}
 		}
 	}
-	if modelPath == "" {
-		modelPath = "models/ch_PP-OCRv4_rec_infer.onnx"
+	if recModelPath == "" {
+		recModelPath = "models/ch_PP-OCRv4_rec_infer.onnx"
 	}
 
-	session, err := ort.NewDynamicAdvancedSession(
-		modelPath,
-		[]string{"x"},
-		[]string{"softmax_11.tmp_0"},
-		nil,
-	)
+	recEngine, err := recognizer.New(recModelPath, vocabKeys)
 	if err != nil {
-		return nil, fmt.Errorf("create advanced session: %w", err)
+		return nil, fmt.Errorf("create recognizer session: %w", err)
+	}
+
+	// Resolve optional detector model path
+	detModelPath := os.Getenv("PPOCR_DET_MODEL_PATH")
+	if detModelPath == "" {
+		candidates := []string{
+			"/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
+			"./models/ch_PP-OCRv4_det_infer.onnx",
+			"../models/ch_PP-OCRv4_det_infer.onnx",
+			"../../models/ch_PP-OCRv4_det_infer.onnx",
+		}
+		for _, c := range candidates {
+			abs, err := filepath.Abs(c)
+			if err == nil {
+				if _, err := os.Stat(abs); err == nil {
+					detModelPath = abs
+					break
+				}
+			}
+		}
+	}
+
+	var detEngine *detector.Detector
+	if detModelPath != "" {
+		var detErr error
+		detEngine, detErr = detector.New(detModelPath)
+		if detErr != nil {
+			recEngine.Destroy()
+			return nil, fmt.Errorf("create detector session: %w", detErr)
+		}
 	}
 
 	return &Client{
-		session: session,
-		opts:    opts,
+		recEngine: recEngine,
+		detEngine: detEngine,
+		opts:      opts,
 	}, nil
 }
 
-// Close releases the underlying ONNX Runtime session. Always defer this.
+// Close releases the underlying ONNX Runtime sessions. Always defer this.
 func (c *Client) Close() {
-	if c.session != nil {
-		c.session.Destroy()
-		c.session = nil
+	if c.recEngine != nil {
+		c.recEngine.Destroy()
+		c.recEngine = nil
+	}
+	if c.detEngine != nil {
+		c.detEngine.Destroy()
+		c.detEngine = nil
 	}
 }
 
-// ReadRegion crops roi from the raw RGB24 frame, preprocesses it, and returns
-// the recognised text.
+// ReadRegion crops roi from the raw RGB24 frame, preprocesses it, and returns the recognised text.
 func (c *Client) ReadRegion(frameData []byte, frameW, frameH int, roi image.Rectangle) (string, error) {
 	text, _, err := c.ReadRegionWithDiagnostics(frameData, frameW, frameH, roi, false)
 	return text, err
 }
 
-// ReadRegionWithDiagnostics is like ReadRegion but optionally also returns the
-// preprocessed PNG for debugging.
+// ReadRegionWithDiagnostics is like ReadRegion but optionally also returns the preprocessed PNG for debugging.
 func (c *Client) ReadRegionWithDiagnostics(
 	frameData []byte, frameW, frameH int, roi image.Rectangle, dumpPNG bool,
 ) (text string, debugPNG []byte, err error) {
 	// 1. Crop
 	crop := imgutil.CropRGB24(frameData, frameW, frameH, roi)
 
-	// 2. Preprocess: Resize to height 48 and keep aspect ratio
-	h := 48
-	w := int(math.Ceil(float64(h) * float64(roi.Dx()) / float64(roi.Dy())))
-	if w < 16 {
-		w = 16
-	}
-	resized := resizeBilinear(crop, w, h)
-
-	// 3. Optional debug PNG
+	// 2. Optional debug PNG
 	if dumpPNG {
-		pngBytes, encErr := imgutil.EncodePNG(resized)
+		pngBytes, encErr := imgutil.EncodePNG(crop)
 		if encErr == nil {
 			debugPNG = pngBytes
 		}
 	}
 
-	// 4. Build flat BGR normalised input array [1, 3, 48, w]
-	inputData := make([]float32, 1*3*h*w)
-	idx := 0
-	// Blue
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			inputData[idx] = float32(resized.NRGBAAt(x, y).B)/127.5 - 1.0
-			idx++
-		}
-	}
-	// Green
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			inputData[idx] = float32(resized.NRGBAAt(x, y).G)/127.5 - 1.0
-			idx++
-		}
-	}
-	// Red
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			inputData[idx] = float32(resized.NRGBAAt(x, y).R)/127.5 - 1.0
-			idx++
-		}
-	}
-
-	// Create inputs and outputs tensors
-	inputShape := ort.NewShape(1, 3, int64(h), int64(w))
-	inputTensor, err := ort.NewTensor(inputShape, inputData)
-	if err != nil {
-		return "", debugPNG, fmt.Errorf("create input tensor: %w", err)
-	}
-	defer inputTensor.Destroy()
-
-	inputs := []ort.Value{inputTensor}
-	outputs := []ort.Value{nil}
-
-	// Run Inference
-	err = c.session.Run(inputs, outputs)
-	if err != nil {
-		return "", debugPNG, fmt.Errorf("session run: %w", err)
-	}
-
-	// Process output
-	outTensor, ok := outputs[0].(*ort.Tensor[float32])
-	if !ok {
-		return "", debugPNG, fmt.Errorf("cast output tensor failed")
-	}
-
-	outData := outTensor.GetData()
-	outShape := outTensor.GetShape()
-
-	seqLen := int(outShape[1])
-	numClasses := int(outShape[2])
-
-	// Decode using CTC greedy decoding
-	decodedText, _ := ctcGreedyDecode(outData, seqLen, numClasses, vocabKeys)
-	return decodedText, debugPNG, nil
+	// 3. Process recognition
+	text, _, err = c.recEngine.ProcessCrop(crop)
+	return text, debugPNG, err
 }
 
-// resizeBilinear resizes an image to the given width and height using bilinear interpolation.
-func resizeBilinear(img *image.NRGBA, w, h int) *image.NRGBA {
-	out := image.NewNRGBA(image.Rect(0, 0, w, h))
-	srcW := img.Bounds().Dx()
-	srcH := img.Bounds().Dy()
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			gx := float64(x) / float64(w) * float64(srcW)
-			gy := float64(y) / float64(h) * float64(srcH)
-			gxi := int(gx)
-			gyi := int(gy)
-
-			x0 := gxi
-			if x0 > srcW-1 {
-				x0 = srcW - 1
-			}
-			x1 := gxi + 1
-			if x1 > srcW-1 {
-				x1 = srcW - 1
-			}
-			y0 := gyi
-			if y0 > srcH-1 {
-				y0 = srcH - 1
-			}
-			y1 := gyi + 1
-			if y1 > srcH-1 {
-				y1 = srcH - 1
-			}
-
-			dx := gx - float64(gxi)
-			dy := gy - float64(gyi)
-
-			c00 := img.NRGBAAt(img.Bounds().Min.X+x0, img.Bounds().Min.Y+y0)
-			c10 := img.NRGBAAt(img.Bounds().Min.X+x1, img.Bounds().Min.Y+y0)
-			c01 := img.NRGBAAt(img.Bounds().Min.X+x0, img.Bounds().Min.Y+y1)
-			c11 := img.NRGBAAt(img.Bounds().Min.X+x1, img.Bounds().Min.Y+y1)
-
-			r := float64(c00.R)*(1-dx)*(1-dy) + float64(c10.R)*dx*(1-dy) + float64(c01.R)*(1-dx)*dy + float64(c11.R)*dx*dy
-			g := float64(c00.G)*(1-dx)*(1-dy) + float64(c10.G)*dx*(1-dy) + float64(c01.G)*(1-dx)*dy + float64(c11.G)*dx*dy
-			b := float64(c00.B)*(1-dx)*(1-dy) + float64(c10.B)*dx*(1-dy) + float64(c01.B)*(1-dx)*dy + float64(c11.B)*dx*dy
-
-			out.SetNRGBA(x, y, color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255})
-		}
-	}
-	return out
-}
-
-// ctcGreedyDecode decodes prediction logits using CTC greedy search.
-func ctcGreedyDecode(preds []float32, seqLen, numClasses int, keys []string) (string, float32) {
-	var sb strings.Builder
-	lastIdx := -1
-	var confSum float32
-	var confCount int
-
-	for t := 0; t < seqLen; t++ {
-		row := preds[t*numClasses : (t+1)*numClasses]
-
-		// Find argmax
-		maxIdx := 0
-		maxVal := row[0]
-		for i := 1; i < numClasses; i++ {
-			if row[i] > maxVal {
-				maxVal = row[i]
-				maxIdx = i
-			}
-		}
-
-		// Filter blank (0) and duplicates
-		if maxIdx != 0 && maxIdx != lastIdx {
-			if maxIdx < len(keys) {
-				sb.WriteString(keys[maxIdx])
-				confSum += maxVal
-				confCount++
-			}
-		}
-		lastIdx = maxIdx
+// ReadFullFrame scans an entire frame buffer, automatically segments all text layouts,
+// and processes them sequentially to extract text lines.
+func (c *Client) ReadFullFrame(frameData []byte, frameW, frameH int) ([]TextResult, error) {
+	if c.detEngine == nil {
+		return nil, fmt.Errorf("layout detector engine is not initialized (PPOCR_DET_MODEL_PATH not set or model file missing)")
 	}
 
-	confidence := float32(0.0)
-	if confCount > 0 {
-		confidence = confSum / float32(confCount)
+	// 1. Create NRGBA image from raw frameData
+	img := image.NewNRGBA(image.Rect(0, 0, frameW, frameH))
+	for y := 0; y < frameH; y++ {
+		srcRow := frameData[y*frameW*3:]
+		for x := 0; x < frameW; x++ {
+			i := x * 3
+			img.SetNRGBA(x, y, color.NRGBA{
+				R: srcRow[i],
+				G: srcRow[i+1],
+				B: srcRow[i+2],
+				A: 255,
+			})
+		}
 	}
-	return sb.String(), confidence
+
+	// 2. Locate all text regions
+	boxes, err := c.detEngine.LocateTextRegions(img)
+	if err != nil {
+		return nil, fmt.Errorf("text detection failed: %w", err)
+	}
+
+	// 3. Sequential recognition on all regions
+	var results []TextResult
+	for _, box := range boxes {
+		// Crop the detected box
+		crop := imgutil.CropRGB24(frameData, frameW, frameH, box)
+		text, conf, err := c.recEngine.ProcessCrop(crop)
+		if err != nil || conf < 0.4 {
+			continue // skip layout noise or unreadable regions
+		}
+
+		results = append(results, TextResult{
+			Text:       text,
+			Confidence: conf,
+			Bounds:     box,
+		})
+	}
+
+	return results, nil
 }
