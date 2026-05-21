@@ -1,11 +1,11 @@
-// Command zenlights extracts and merges highlight clips from MOBA gameplay videos.
+// Command zenlights extracts and merges highlight clips from esport/sport VODs.
 //
 // Usage:
 //
 //	zenlights -game lol -input match.mp4 -output highlights.mp4 [-preview] [-v]
 //
 // Supported games: lol, dota2
-// (add more by importing their detector packages below)
+// (add more by implementing game.Detector and blank-importing the package here)
 package main
 
 import (
@@ -21,6 +21,7 @@ import (
 
 	// Register game detectors — add new games here
 	_ "github.com/zen-lights/zen-lights/pkg/game/dota2"
+	_ "github.com/zen-lights/zen-lights/pkg/game/cs2"
 	_ "github.com/zen-lights/zen-lights/pkg/game/lol"
 )
 
@@ -29,16 +30,18 @@ func main() {
 	log.SetPrefix("zenlights: ")
 
 	var (
-		inputPath   = flag.String("input", "", "path to the input video file (required)")
-		outputPath  = flag.String("output", "highlights.mp4", "path for the merged output video")
-		gameName    = flag.String("game", "", fmt.Sprintf("game to detect (required) — one of: %s", strings.Join(game.Available(), ", ")))
-		doPreview   = flag.Bool("preview", false, "open an HTTP preview server after processing")
-		previewAddr = flag.String("addr", "localhost:8765", "address for the preview server")
-		verbose     = flag.Bool("v", false, "verbose logging")
+		inputPath    = flag.String("input", "", "path to the input video file (required)")
+		outputPath   = flag.String("output", "highlights.mp4", "path for the merged output video")
+		gameName     = flag.String("game", "", fmt.Sprintf("game to detect — one of: %s", strings.Join(game.Available(), ", ")))
+		doPreview    = flag.Bool("preview", false, "open an HTTP preview server after processing")
+		previewAddr  = flag.String("addr", "localhost:8765", "address for the preview server")
+		verbose      = flag.Bool("v", false, "verbose logging")
+		dumpFrames   = flag.String("dump-frames", "", "directory to write preprocessed OCR frames (for ROI/threshold debugging)")
+		maxScoreJump = flag.Int("max-score-jump", 5, "maximum plausible kill-score increase per sample frame (reject OCR noise above this)")
 	)
 	flag.Parse()
 
-	// ── Validate flags ───────────────────────────────────────────────────────
+	// ── Validate flags ────────────────────────────────────────────────────────
 	var errs []string
 	if *inputPath == "" {
 		errs = append(errs, "-input is required")
@@ -60,18 +63,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// ── Run pipeline ─────────────────────────────────────────────────────────
+	// ── Run pipeline ──────────────────────────────────────────────────────────
 	result, err := pipeline.Run(pipeline.Config{
-		InputPath:  *inputPath,
-		OutputPath: *outputPath,
-		Game:       detector,
-		Verbose:    *verbose,
+		InputPath:    *inputPath,
+		OutputPath:   *outputPath,
+		Game:         detector,
+		Verbose:      *verbose,
+		DumpFrameDir: *dumpFrames,
+		MaxScoreJump: *maxScoreJump,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// ── Print summary ─────────────────────────────────────────────────────────
+	// ── Summary ───────────────────────────────────────────────────────────────
 	fmt.Printf("\n✅ Highlights written to: %s\n", result.OutputPath)
 	fmt.Printf("   %d segment(s), %d total kills\n\n", len(result.Segments), totalKills(result))
 	for i, seg := range result.Segments {

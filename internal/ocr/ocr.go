@@ -10,77 +10,132 @@ package ocr
 import (
 	"fmt"
 	"image"
+	"strings"
 
 	"github.com/otiai10/gosseract/v2"
 	"github.com/zen-lights/zen-lights/internal/imgutil"
+	"github.com/zen-lights/zen-lights/pkg/game"
 )
+
+// Options configures OCR preprocessing.
+// Build one from a game.OCRConfig with OptionsFromConfig.
+type Options struct {
+	scaleFactor       int
+	thresholdValue    uint8
+	invertThreshold   bool
+	adaptiveThreshold bool
+}
+
+// DefaultOptions returns sensible defaults for bright-text-on-dark MOBAs
+// (LoL, Dota 2, CS2, Valorant, etc.).
+func DefaultOptions() Options {
+	return Options{
+		scaleFactor:    3,
+		thresholdValue: 110,
+	}
+}
+
+// OptionsFromConfig builds Options from a game.OCRConfig, applying defaults
+// for any zero-value fields.
+func OptionsFromConfig(c game.OCRConfig) Options {
+	o := DefaultOptions()
+	if c.ScaleFactor > 0 {
+		o.scaleFactor = c.ScaleFactor
+	}
+	if c.ThresholdValue > 0 {
+		o.thresholdValue = c.ThresholdValue
+	}
+	o.invertThreshold = c.InvertThreshold
+	o.adaptiveThreshold = c.AdaptiveThreshold
+	return o
+}
 
 // Client holds a long-lived Tesseract session configured for digit reading.
 // Create one per pipeline run and defer Close().
-// Not safe for concurrent use from multiple goroutines — create one per goroutine
-// if you need parallelism.
+// Not safe for concurrent use — create one per goroutine if parallelism needed.
 type Client struct {
 	tess *gosseract.Client
+	opts Options
 }
 
-// New creates a Tesseract client pre-configured for HUD kill-score OCR:
-//   - Character whitelist: digits, space, dash (typical score format "12 - 8")
-//   - PSM 7: treat the image as a single text line
-//   - OEM 3: default engine (LSTM + legacy fallback)
-func New() (*Client, error) {
+// New creates a Tesseract client with the given options.
+//
+// Tesseract is configured with:
+//   - Character whitelist: digits, space, dash, en-dash
+//   - PSM 7: single text line
+//   - OEM 3: LSTM + legacy fallback
+func New(opts Options) (*Client, error) {
 	t := gosseract.NewClient()
 
 	if err := t.SetVariable("tessedit_char_whitelist", "0123456789 -–"); err != nil {
 		t.Close()
 		return nil, fmt.Errorf("set char whitelist: %w", err)
 	}
-	// PSM_SINGLE_LINE (7) — the score is always a single horizontal line
 	t.SetPageSegMode(gosseract.PSM_SINGLE_LINE)
 
-	return &Client{tess: t}, nil
+	return &Client{tess: t, opts: opts}, nil
 }
 
 // Close releases the underlying Tesseract instance. Always defer this.
 func (c *Client) Close() { c.tess.Close() }
 
-// ReadRegion crops roi from the raw RGB24 frame, preprocesses it for maximum
-// OCR accuracy, and returns the recognised text.
+// ReadRegion crops roi from the raw RGB24 frame, preprocesses it, and returns
+// the recognised text.
 //
-// Preprocessing steps:
-//  1. Crop the ROI (pure Go, zero-copy arithmetic on the source slice)
+// Preprocessing pipeline:
+//  1. Crop the ROI (pure Go)
 //  2. Convert to grayscale (BT.601 luma)
-//  3. Scale up 3× with nearest-neighbor (Tesseract performs better on ≥40px text)
-//  4. Binary threshold (bright HUD text on dark background)
+//  3. Scale up (default 3×) — Tesseract performs better on ≥40px text
+//  4. Binary threshold (direction / adaptive mode from Options)
 //  5. PNG-encode in-memory → Tesseract
 //
-// Returns an empty string (not an error) when no text can be read.
+// Returns empty string (not an error) when no text can be read.
 func (c *Client) ReadRegion(frameData []byte, frameW, frameH int, roi image.Rectangle) (string, error) {
+	text, _, err := c.ReadRegionWithDiagnostics(frameData, frameW, frameH, roi, false)
+	return text, err
+}
+
+// ReadRegionWithDiagnostics is like ReadRegion but optionally also returns the
+// preprocessed PNG for debugging ROI/threshold tuning.
+// Pass dumpPNG=false in production to skip the extra allocation.
+func (c *Client) ReadRegionWithDiagnostics(
+	frameData []byte, frameW, frameH int, roi image.Rectangle, dumpPNG bool,
+) (text string, debugPNG []byte, err error) {
 	// 1. Crop
 	crop := imgutil.CropRGB24(frameData, frameW, frameH, roi)
 
 	// 2. Grayscale
 	gray := imgutil.ToGrayscale(crop)
 
-	// 3. Scale up 3× — HUD text is typically only 18–30px tall
-	scaled := imgutil.ScaleUp(gray, 3)
+	// 3. Scale up
+	scaled := imgutil.ScaleUp(gray, c.opts.scaleFactor)
 
-	// 4. Threshold — assumes bright digits on a dark HUD background.
-	//    Adjust threshold value or swap to InvertThreshold if your game differs.
-	thresh := imgutil.Threshold(scaled, 100)
+	// 4. Threshold
+	var thresh *imgutil.GrayImage
+	switch {
+	case c.opts.adaptiveThreshold:
+		thresh = imgutil.AdaptiveThreshold(scaled)
+	case c.opts.invertThreshold:
+		thresh = imgutil.InvertThreshold(scaled, c.opts.thresholdValue)
+	default:
+		thresh = imgutil.Threshold(scaled, c.opts.thresholdValue)
+	}
 
-	// 5. Encode to PNG in memory (no disk I/O)
-	pngBytes, err := imgutil.EncodePNG(thresh)
-	if err != nil {
-		return "", fmt.Errorf("png encode: %w", err)
+	// 5. PNG encode
+	pngBytes, encErr := imgutil.EncodePNG(thresh)
+	if encErr != nil {
+		return "", nil, fmt.Errorf("png encode: %w", encErr)
+	}
+	if dumpPNG {
+		debugPNG = pngBytes
 	}
 
 	if err := c.tess.SetImageFromBytes(pngBytes); err != nil {
-		return "", fmt.Errorf("tesseract set image: %w", err)
+		return "", debugPNG, fmt.Errorf("tesseract set image: %w", err)
 	}
-
-	text, err := c.tess.Text()
-	if err != nil {
-		return "", fmt.Errorf("tesseract text: %w", err)
+	raw, tessErr := c.tess.Text()
+	if tessErr != nil {
+		return "", debugPNG, fmt.Errorf("tesseract text: %w", tessErr)
 	}
-	return text, nil
+	return strings.TrimSpace(raw), debugPNG, nil
 }
