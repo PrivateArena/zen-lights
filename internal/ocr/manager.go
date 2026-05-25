@@ -1,16 +1,18 @@
 package ocr
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 )
 
 // LanguageProfile defines the assets for a specific language's OCR.
 type LanguageProfile struct {
-	ID           string
-	RecModelPath string
-	RecVocabPath string
-	DetModelPath string
+	ID           string `json:"id"`
+	RecModelPath string `json:"rec_model_path"`
+	RecVocabPath string `json:"rec_vocab_path"`
+	DetModelPath string `json:"det_model_path"`
 }
 
 // Manager orchestrates multiple OCR clients for different languages.
@@ -28,6 +30,26 @@ func NewManager(opts Options) *Manager {
 		profiles: make(map[string]LanguageProfile),
 		options:  opts,
 	}
+}
+
+// LoadConfig loads language profiles from a JSON file.
+func (m *Manager) LoadConfig(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read config file: %w", err)
+	}
+
+	var profiles []LanguageProfile
+	if err := json.Unmarshal(data, &profiles); err != nil {
+		return fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range profiles {
+		m.profiles[p.ID] = p
+	}
+	return nil
 }
 
 // RegisterLanguage adds or updates a language profile.

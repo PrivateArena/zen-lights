@@ -4,7 +4,6 @@
 package ocr
 
 import (
-	_ "embed"
 	"fmt"
 	"image"
 	"image/color"
@@ -20,13 +19,9 @@ import (
 	"github.com/zen-lights/zen-lights/pkg/game"
 )
 
-//go:embed ppocr_keys_v4.txt
-var vocabData string
-
 var (
 	ortInitOnce sync.Once
 	ortInitErr  error
-	vocabKeys   []string
 )
 
 // Options configures OCR assets and preprocessing.
@@ -43,8 +38,6 @@ type Options struct {
 // DefaultOptions returns sensible defaults for bright-text-on-dark MOBAs.
 func DefaultOptions() Options {
 	return Options{
-		RecModelPath:   "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
-		DetModelPath:   "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
 		scaleFactor:    3,
 		thresholdValue: 110,
 	}
@@ -81,9 +74,6 @@ type Client struct {
 // initORT sets the shared library path and initializes the environment.
 func initORT() error {
 	ortInitOnce.Do(func() {
-		// Parse vocabulary
-		vocabKeys = strings.Split(vocabData, "\n")
-
 		// Resolve library path
 		libPath := os.Getenv("ORT_SHARED_LIB_PATH")
 		if libPath == "" {
@@ -120,23 +110,21 @@ func New(opts Options) (*Client, error) {
 		return nil, fmt.Errorf("init onnxruntime: %w", err)
 	}
 
-	activeVocab := vocabKeys
-	if opts.RecVocabPath != "" {
-		data, err := os.ReadFile(opts.RecVocabPath)
-		if err != nil {
-			return nil, fmt.Errorf("read external vocab: %w", err)
-		}
-		// Split and clean up lines (remove CR if present on Windows-origin files)
-		activeVocab = strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
+	if opts.RecVocabPath == "" {
+		return nil, fmt.Errorf("RecVocabPath is required")
 	}
+
+	data, err := os.ReadFile(opts.RecVocabPath)
+	if err != nil {
+		return nil, fmt.Errorf("read vocab file: %w", err)
+	}
+	// Split and clean up lines (remove CR if present on Windows-origin files)
+	activeVocab := strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
 
 	// Resolve recognizer model path
 	recModelPath := opts.RecModelPath
 	if recModelPath == "" {
-		recModelPath = os.Getenv("PPOCR_MODEL_PATH")
-	}
-	if recModelPath == "" {
-		recModelPath = "models/ch_PP-OCRv4_rec_infer.onnx"
+		return nil, fmt.Errorf("RecModelPath is required")
 	}
 
 	recEngine, err := recognizer.New(recModelPath, activeVocab)
@@ -144,16 +132,10 @@ func New(opts Options) (*Client, error) {
 		return nil, fmt.Errorf("create recognizer session: %w", err)
 	}
 
-	// Resolve optional detector model path
-	detModelPath := opts.DetModelPath
-	if detModelPath == "" {
-		detModelPath = os.Getenv("PPOCR_DET_MODEL_PATH")
-	}
-
 	var detEngine *detector.Detector
-	if detModelPath != "" {
+	if opts.DetModelPath != "" {
 		var detErr error
-		detEngine, detErr = detector.New(detModelPath)
+		detEngine, detErr = detector.New(opts.DetModelPath)
 		if detErr != nil {
 			recEngine.Destroy()
 			return nil, fmt.Errorf("create detector session: %w", detErr)
@@ -209,7 +191,7 @@ func (c *Client) ReadRegionWithDiagnostics(
 // and processes them sequentially to extract text lines.
 func (c *Client) ReadFullFrame(frameData []byte, frameW, frameH int) ([]TextResult, error) {
 	if c.detEngine == nil {
-		return nil, fmt.Errorf("layout detector engine is not initialized (PPOCR_DET_MODEL_PATH not set or model file missing)")
+		return nil, fmt.Errorf("layout detector engine is not initialized (DetModelPath not set in Options)")
 	}
 
 	// 1. Create NRGBA image from raw frameData

@@ -24,10 +24,11 @@ func TestComparativeOCR(t *testing.T) {
 	if _, err := os.Stat(libPath); err != nil {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
-	os.Setenv("ORT_SHARED_LIB_PATH", libPath)
-	os.Setenv("PPOCR_MODEL_PATH", "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx")
+	opts := DefaultOptions()
+	opts.RecModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "/media/jang/home/Deve/zen-lights/models/ch_dict.txt"
 
-	client, err := New(DefaultOptions())
+	client, err := New(opts)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -97,11 +98,12 @@ func TestFullPipelineIntegration(t *testing.T) {
 	if _, err := os.Stat(libPath); err != nil {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
-	os.Setenv("ORT_SHARED_LIB_PATH", libPath)
-	os.Setenv("PPOCR_MODEL_PATH", "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx")
-	os.Setenv("PPOCR_DET_MODEL_PATH", "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx")
+	opts := DefaultOptions()
+	opts.RecModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "/media/jang/home/Deve/zen-lights/models/ch_dict.txt"
+	opts.DetModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
 
-	client, err := New(DefaultOptions())
+	client, err := New(opts)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -169,12 +171,11 @@ func TestMangaFullPageOCR(t *testing.T) {
 	if _, err := os.Stat(libPath); err != nil {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
-	os.Setenv("ORT_SHARED_LIB_PATH", libPath)
-	os.Setenv("PPOCR_MODEL_PATH", "/media/jang/home/Deve/zen-lights/models/japan_PP-OCRv4_rec_infer.onnx")
-	os.Setenv("PPOCR_DET_MODEL_PATH", "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx")
-
 	opts := DefaultOptions()
+	opts.RecModelPath = "/media/jang/home/Deve/zen-lights/models/japan_PP-OCRv4_rec_infer.onnx"
 	opts.RecVocabPath = "/media/jang/home/Deve/zen-lights/models/japan_dict.txt"
+	opts.DetModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+
 	client, err := New(opts)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)

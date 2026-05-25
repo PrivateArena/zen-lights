@@ -116,22 +116,18 @@ func runDetect(args []string) {
 func runOCRServer(args []string) {
 	fs := flag.NewFlagSet("ocr-server", flag.ExitOnError)
 	addr := fs.String("addr", "localhost:8080", "address for the OCR server")
+	configPath := fs.String("config", "config.json", "path to the language profiles config file")
 	fs.Parse(args)
 
 	manager := ocr.NewManager(ocr.DefaultOptions())
 
-	// Register default languages
-	manager.RegisterLanguage(ocr.LanguageProfile{
-		ID:           "ch",
-		RecModelPath: "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
-		DetModelPath: "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
-	})
-	manager.RegisterLanguage(ocr.LanguageProfile{
-		ID:           "ja",
-		RecModelPath: "/media/jang/home/Deve/zen-lights/models/japan_PP-OCRv4_rec_infer.onnx",
-		RecVocabPath: "/media/jang/home/Deve/zen-lights/models/japan_dict.txt",
-		DetModelPath: "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
-	})
+	// Load language profiles from config file
+	if err := manager.LoadConfig(*configPath); err != nil {
+		log.Printf("Warning: failed to load config from %s: %v", *configPath, err)
+		log.Println("Proceeding with empty language registry (you may need to register languages via API later if implemented)")
+	} else {
+		log.Printf("Loaded language profiles from %s", *configPath)
+	}
 
 	srv := server.New(*addr, manager)
 	if err := srv.Start(); err != nil {

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "ch",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/ch_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  },
+  {
+    "id": "ja",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/japan_PP-OCRv4_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/japan_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  },
+  {
+    "id": "ko",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/korean_PP-OCRv4_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/korean_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  },
+  {
+    "id": "en",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/en_PP-OCRv3_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/en_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  },
+  {
+    "id": "ar",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/arabic_PP-OCRv4_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/arabic_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  },
+  {
+    "id": "hi",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/devanagari_PP-OCRv4_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/devanagari_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  },
+  {
+    "id": "cy",
+    "rec_model_path": "/media/jang/home/Deve/zen-lights/models/cyrillic_PP-OCRv4_rec_infer.onnx",
+    "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/cyrillic_dict.txt",
+    "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+  }
+]
