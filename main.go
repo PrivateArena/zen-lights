@@ -1,11 +1,4 @@
 // Command zenlights extracts and merges highlight clips from esport/sport VODs.
-//
-// Usage:
-//
-//	zenlights -game lol -input match.mp4 -output highlights.mp4 [-preview] [-v]
-//
-// Supported games: lol, dota2
-// (add more by implementing game.Detector and blank-importing the package here)
 package main
 
 import (
@@ -15,13 +8,15 @@ import (
 	"os"
 	"strings"
 
+	"github.com/zen-lights/zen-lights/internal/ocr"
+	"github.com/zen-lights/zen-lights/internal/ocr/server"
 	"github.com/zen-lights/zen-lights/internal/preview"
 	"github.com/zen-lights/zen-lights/pkg/game"
 	"github.com/zen-lights/zen-lights/pkg/pipeline"
 
 	// Register game detectors — add new games here
-	_ "github.com/zen-lights/zen-lights/pkg/game/dota2"
 	_ "github.com/zen-lights/zen-lights/pkg/game/cs2"
+	_ "github.com/zen-lights/zen-lights/pkg/game/dota2"
 	_ "github.com/zen-lights/zen-lights/pkg/game/lol"
 )
 
@@ -29,17 +24,45 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("zenlights: ")
 
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "detect":
+		runDetect(os.Args[2:])
+	case "ocr-server":
+		runOCRServer(os.Args[2:])
+	case "help", "-h", "--help":
+		printUsage()
+	default:
+		// Fallback for backward compatibility (treat as detect)
+		runDetect(os.Args[1:])
+	}
+}
+
+func printUsage() {
+	fmt.Println("Usage: zenlights <command> [options]")
+	fmt.Println("\nCommands:")
+	fmt.Println("  detect      Run the highlight extraction pipeline (default)")
+	fmt.Println("  ocr-server  Start a persistent HTTP OCR server with multi-language support")
+	fmt.Println("\nRun 'zenlights <command> -h' for more info on a command.")
+}
+
+func runDetect(args []string) {
+	fs := flag.NewFlagSet("detect", flag.ExitOnError)
 	var (
-		inputPath    = flag.String("input", "", "path to the input video file (required)")
-		outputPath   = flag.String("output", "highlights.mp4", "path for the merged output video")
-		gameName     = flag.String("game", "", fmt.Sprintf("game to detect — one of: %s", strings.Join(game.Available(), ", ")))
-		doPreview    = flag.Bool("preview", false, "open an HTTP preview server after processing")
-		previewAddr  = flag.String("addr", "localhost:8765", "address for the preview server")
-		verbose      = flag.Bool("v", false, "verbose logging")
-		dumpFrames   = flag.String("dump-frames", "", "directory to write preprocessed OCR frames (for ROI/threshold debugging)")
-		maxScoreJump = flag.Int("max-score-jump", 5, "maximum plausible kill-score increase per sample frame (reject OCR noise above this)")
+		inputPath    = fs.String("input", "", "path to the input video file (required)")
+		outputPath   = fs.String("output", "highlights.mp4", "path for the merged output video")
+		gameName     = fs.String("game", "", fmt.Sprintf("game to detect — one of: %s", strings.Join(game.Available(), ", ")))
+		doPreview    = fs.Bool("preview", false, "open an HTTP preview server after processing")
+		previewAddr  = fs.String("addr", "localhost:8765", "address for the preview server")
+		verbose      = fs.Bool("v", false, "verbose logging")
+		dumpFrames   = fs.String("dump-frames", "", "directory to write preprocessed OCR frames (for ROI/threshold debugging)")
+		maxScoreJump = fs.Int("max-score-jump", 5, "maximum plausible kill-score increase per sample frame (reject OCR noise above this)")
 	)
-	flag.Parse()
+	fs.Parse(args)
 
 	// ── Validate flags ────────────────────────────────────────────────────────
 	var errs []string
@@ -53,8 +76,6 @@ func main() {
 		for _, e := range errs {
 			log.Println("error:", e)
 		}
-		fmt.Fprintln(os.Stderr)
-		flag.Usage()
 		os.Exit(1)
 	}
 
@@ -89,6 +110,32 @@ func main() {
 		if err := preview.Serve(*previewAddr, result.OutputPath, result.Segments); err != nil {
 			log.Fatal("preview server:", err)
 		}
+	}
+}
+
+func runOCRServer(args []string) {
+	fs := flag.NewFlagSet("ocr-server", flag.ExitOnError)
+	addr := fs.String("addr", "localhost:8080", "address for the OCR server")
+	fs.Parse(args)
+
+	manager := ocr.NewManager(ocr.DefaultOptions())
+
+	// Register default languages
+	manager.RegisterLanguage(ocr.LanguageProfile{
+		ID:           "ch",
+		RecModelPath: "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
+		DetModelPath: "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
+	})
+	manager.RegisterLanguage(ocr.LanguageProfile{
+		ID:           "ja",
+		RecModelPath: "/media/jang/home/Deve/zen-lights/models/japan_PP-OCRv4_rec_infer.onnx",
+		RecVocabPath: "/media/jang/home/Deve/zen-lights/models/japan_dict.txt",
+		DetModelPath: "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
+	})
+
+	srv := server.New(*addr, manager)
+	if err := srv.Start(); err != nil {
+		log.Fatal("ocr-server:", err)
 	}
 }
 

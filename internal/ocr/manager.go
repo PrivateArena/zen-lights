@@ -10,7 +10,7 @@ type LanguageProfile struct {
 	ID           string
 	RecModelPath string
 	RecVocabPath string
-	DetModelPath string // Optional, can share a common one
+	DetModelPath string
 }
 
 // Manager orchestrates multiple OCR clients for different languages.
@@ -63,19 +63,19 @@ func (m *Manager) GetClient(langID string) (*Client, error) {
 	}
 
 	opts := m.options
+	opts.RecModelPath = profile.RecModelPath
 	opts.RecVocabPath = profile.RecVocabPath
+	if profile.DetModelPath != "" {
+		opts.DetModelPath = profile.DetModelPath
+	}
 
-	// Temporarily set env vars for New() to pick up
-	// In a more refined version, New() should take these as parameters
-	// but we'll stick to the current ocr.New structure for now.
-	// We'll restore them if needed, but since this is a persistent server, 
-	// we just set them.
-	// Actually, let's modify ocr.New to be more flexible later.
-	// For now, we manually set the environment or pass them if we refactor ocr.go
-	
-	// Refactoring internal/ocr/ocr.go slightly would be better to avoid Env var side effects.
-	
-	return nil, fmt.Errorf("initialization logic for %q needs ocr.New refactor", langID)
+	client, err := New(opts)
+	if err != nil {
+		return nil, fmt.Errorf("init client for %q: %w", langID, err)
+	}
+
+	m.clients[langID] = client
+	return client, nil
 }
 
 // Close releases all underlying OCR sessions.

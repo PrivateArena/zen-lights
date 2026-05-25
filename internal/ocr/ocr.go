@@ -29,9 +29,11 @@ var (
 	vocabKeys   []string
 )
 
-// Options configures OCR preprocessing.
+// Options configures OCR assets and preprocessing.
 type Options struct {
+	RecModelPath      string
 	RecVocabPath      string
+	DetModelPath      string
 	scaleFactor       int
 	thresholdValue    uint8
 	invertThreshold   bool
@@ -41,6 +43,8 @@ type Options struct {
 // DefaultOptions returns sensible defaults for bright-text-on-dark MOBAs.
 func DefaultOptions() Options {
 	return Options{
+		RecModelPath:   "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
+		DetModelPath:   "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
 		scaleFactor:    3,
 		thresholdValue: 110,
 	}
@@ -123,29 +127,13 @@ func New(opts Options) (*Client, error) {
 			return nil, fmt.Errorf("read external vocab: %w", err)
 		}
 		// Split and clean up lines (remove CR if present on Windows-origin files)
-		lines := strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
-		// The recognizer expects the keys. PaddleOCR dicts usually have one char per line.
-		activeVocab = lines
+		activeVocab = strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
 	}
 
 	// Resolve recognizer model path
-	recModelPath := os.Getenv("PPOCR_MODEL_PATH")
+	recModelPath := opts.RecModelPath
 	if recModelPath == "" {
-		candidates := []string{
-			"/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx",
-			"./models/ch_PP-OCRv4_rec_infer.onnx",
-			"../models/ch_PP-OCRv4_rec_infer.onnx",
-			"../../models/ch_PP-OCRv4_rec_infer.onnx",
-		}
-		for _, c := range candidates {
-			abs, err := filepath.Abs(c)
-			if err == nil {
-				if _, err := os.Stat(abs); err == nil {
-					recModelPath = abs
-					break
-				}
-			}
-		}
+		recModelPath = os.Getenv("PPOCR_MODEL_PATH")
 	}
 	if recModelPath == "" {
 		recModelPath = "models/ch_PP-OCRv4_rec_infer.onnx"
@@ -157,23 +145,9 @@ func New(opts Options) (*Client, error) {
 	}
 
 	// Resolve optional detector model path
-	detModelPath := os.Getenv("PPOCR_DET_MODEL_PATH")
+	detModelPath := opts.DetModelPath
 	if detModelPath == "" {
-		candidates := []string{
-			"/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx",
-			"./models/ch_PP-OCRv4_det_infer.onnx",
-			"../models/ch_PP-OCRv4_det_infer.onnx",
-			"../../models/ch_PP-OCRv4_det_infer.onnx",
-		}
-		for _, c := range candidates {
-			abs, err := filepath.Abs(c)
-			if err == nil {
-				if _, err := os.Stat(abs); err == nil {
-					detModelPath = abs
-					break
-				}
-			}
-		}
+		detModelPath = os.Getenv("PPOCR_DET_MODEL_PATH")
 	}
 
 	var detEngine *detector.Detector
