@@ -31,6 +31,7 @@ var (
 
 // Options configures OCR preprocessing.
 type Options struct {
+	RecVocabPath      string
 	scaleFactor       int
 	thresholdValue    uint8
 	invertThreshold   bool
@@ -115,6 +116,18 @@ func New(opts Options) (*Client, error) {
 		return nil, fmt.Errorf("init onnxruntime: %w", err)
 	}
 
+	activeVocab := vocabKeys
+	if opts.RecVocabPath != "" {
+		data, err := os.ReadFile(opts.RecVocabPath)
+		if err != nil {
+			return nil, fmt.Errorf("read external vocab: %w", err)
+		}
+		// Split and clean up lines (remove CR if present on Windows-origin files)
+		lines := strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
+		// The recognizer expects the keys. PaddleOCR dicts usually have one char per line.
+		activeVocab = lines
+	}
+
 	// Resolve recognizer model path
 	recModelPath := os.Getenv("PPOCR_MODEL_PATH")
 	if recModelPath == "" {
@@ -138,7 +151,7 @@ func New(opts Options) (*Client, error) {
 		recModelPath = "models/ch_PP-OCRv4_rec_infer.onnx"
 	}
 
-	recEngine, err := recognizer.New(recModelPath, vocabKeys)
+	recEngine, err := recognizer.New(recModelPath, activeVocab)
 	if err != nil {
 		return nil, fmt.Errorf("create recognizer session: %w", err)
 	}

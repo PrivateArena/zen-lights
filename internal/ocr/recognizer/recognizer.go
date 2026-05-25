@@ -18,15 +18,63 @@ type Recognizer struct {
 
 // New creates a new Recognizer session.
 func New(modelPath string, vocabKeys []string) (*Recognizer, error) {
-	session, err := ort.NewDynamicAdvancedSession(
-		modelPath,
-		[]string{"x"},
-		[]string{"softmax_11.tmp_0"},
-		nil,
-	)
-	if err != nil {
-		return nil, err
+	// PaddleOCR models have varying input/output names depending on version and conversion tool.
+	// Chinese V4: x / softmax_11.tmp_0
+	// Japanese V4: x / softmax_2.tmp_0
+	
+	// Since NewDynamicAdvancedSession is lenient, we will try to create a session
+	// with a list of ALL possible outputs. If we provide multiple outputs, 
+	// we MUST provide matching multiple output tensors in Run().
+	// To avoid that, we will try to find the SINGLE correct name.
+	
+	inputCandidates := []string{"x", "input", "images"}
+	
+	var session *ort.DynamicAdvancedSession
+	
+	// We'll try to use the version of NewAdvancedSession that doesn't take names
+	// to see if it auto-discovers, but the wrapper is tricky.
+	
+	// Let's try the Japanese one first since we are testing it
+	orderedOutputs := []string{"softmax_2.tmp_0", "softmax_11.tmp_0", "softmax_5.tmp_0", "output", "preds"}
+
+	for _, in := range inputCandidates {
+		for _, out := range orderedOutputs {
+			s, err := ort.NewDynamicAdvancedSession(
+				modelPath,
+				[]string{in},
+				[]string{out},
+				nil,
+			)
+			if err == nil {
+				// To TRULY verify, we need a dummy run. 
+				// But we can also check if the error "Invalid output name" is catchable.
+				// For now, let's assume if it doesn't fail on New, it might work, 
+				// but we saw it doesn't fail on New.
+				
+				// HACK: We'll use a very small dummy tensor to probe.
+				shape := ort.NewShape(1, 3, 48, 10)
+				data := make([]float32, 1*3*48*10)
+				tensor, _ := ort.NewTensor(shape, data)
+				
+				errRun := s.Run([]ort.Value{tensor}, []ort.Value{nil})
+				tensor.Destroy()
+				
+				if errRun == nil {
+					session = s
+					break
+				}
+				s.Destroy()
+			}
+		}
+		if session != nil {
+			break
+		}
 	}
+
+	if session == nil {
+		return nil, errors.New("failed to find valid input/output names for recognizer model via dummy run probe")
+	}
+
 	return &Recognizer{
 		session: session,
 		vocab:   vocabKeys,

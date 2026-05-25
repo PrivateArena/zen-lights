@@ -54,3 +54,4 @@ tui_state.json
 sfizz.log
 node_modules/
 *.log
+*.png
