@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -12,24 +13,27 @@ import (
 	_ "image/png"
 
 	"github.com/zen-lights/zen-lights/internal/ocr"
+	"github.com/zen-lights/zen-lights/internal/translate"
 )
 
 // Server provides a persistent HTTP API for multi-language OCR.
 type Server struct {
-	manager      *ocr.Manager
-	addr         string
-	defaultModel string
+	manager          *ocr.Manager
+	translateManager *translate.Manager
+	addr             string
+	defaultModel     string
 }
 
 // New creates a new OCR server.
-func New(addr string, manager *ocr.Manager, defaultModel string) *Server {
+func New(addr string, manager *ocr.Manager, defaultModel string, translateManager *translate.Manager) *Server {
 	if defaultModel == "" {
 		defaultModel = "ch"
 	}
 	return &Server{
-		addr:         addr,
-		manager:      manager,
-		defaultModel: defaultModel,
+		addr:             addr,
+		manager:          manager,
+		translateManager: translateManager,
+		defaultModel:     defaultModel,
 	}
 }
 
@@ -39,6 +43,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/recognize", s.handleRecognize)
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/default-model", s.handleDefaultModel)
+	mux.HandleFunc("/translate", s.handleTranslate)
 
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -193,4 +198,83 @@ func (s *Server) handleDefaultModel(w http.ResponseWriter, r *http.Request) {
 		"status":        "success",
 		"default_model": s.defaultModel,
 	})
+}
+
+type translateRequest struct {
+	Text   string `json:"text"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+type translateResponse struct {
+	Translated string `json:"translated,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+func (s *Server) handleTranslate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.translateManager == nil {
+		s.jsonTranslateError(w, "Translation engine not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req translateRequest
+
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			// fallback to parameters if body decoding fails
+		}
+	}
+
+	if req.Text == "" {
+		req.Text = r.URL.Query().Get("text")
+	}
+	if req.Source == "" {
+		req.Source = r.URL.Query().Get("source")
+		if req.Source == "" {
+			req.Source = r.URL.Query().Get("from")
+		}
+		if req.Source == "" {
+			req.Source = r.URL.Query().Get("src")
+		}
+	}
+	if req.Target == "" {
+		req.Target = r.URL.Query().Get("target")
+		if req.Target == "" {
+			req.Target = r.URL.Query().Get("to")
+		}
+		if req.Target == "" {
+			req.Target = r.URL.Query().Get("tgt")
+		}
+	}
+
+	if req.Text == "" {
+		s.jsonTranslateError(w, "Parameter 'text' is required", http.StatusBadRequest)
+		return
+	}
+	if req.Source == "" {
+		req.Source = "auto"
+	}
+	if req.Target == "" {
+		req.Target = "en"
+	}
+
+	translated, err := s.translateManager.Translate(r.Context(), req.Text, req.Source, req.Target)
+	if err != nil {
+		s.jsonTranslateError(w, fmt.Sprintf("Translation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(translateResponse{Translated: translated})
+}
+
+func (s *Server) jsonTranslateError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(translateResponse{Error: msg})
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/zen-lights/zen-lights/internal/ocr"
+	"github.com/zen-lights/zen-lights/internal/translate"
 )
 
 func TestDefaultModelEndpoints(t *testing.T) {
@@ -18,8 +19,11 @@ func TestDefaultModelEndpoints(t *testing.T) {
 	manager.RegisterLanguage(ocr.LanguageProfile{ID: "en"})
 	manager.RegisterLanguage(ocr.LanguageProfile{ID: "ja"})
 
+	// Create translate manager with empty config
+	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
+
 	// Create server
-	srv := New(":0", manager, "ch")
+	srv := New(":0", manager, "ch", transManager)
 
 	// Create test HTTP recorder for GET /default-model
 	req, err := http.NewRequest("GET", "/default-model", nil)
@@ -74,5 +78,24 @@ func TestDefaultModelEndpoints(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected status 404 for missing model, got %d", rr.Code)
+	}
+}
+
+func TestTranslateEndpoint(t *testing.T) {
+	manager := ocr.NewManager(ocr.DefaultOptions())
+	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
+	srv := New(":0", manager, "ch", transManager)
+
+	// Since we mock the actual online translation, let's write a simple validation 
+	// for the missing query/body parameter error.
+	req, err := http.NewRequest("GET", "/translate", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	srv.handleTranslate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for empty request, got %d", rr.Code)
 	}
 }

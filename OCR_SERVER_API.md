@@ -151,3 +151,37 @@ Uploads an image file to run layout segmentation and text recognition.
     ]
   }
   ```
+
+---
+
+### 5. Translate (Dual-Engine Translation)
+Translates text between languages using either online (Google Translate) or local offline models (Helsinki OPUS-MT).
+
+* **Endpoint:** `POST /translate` (also supports `GET`)
+* **Request Options:**
+  * `text` (String, required): The text to translate. Can be sent in a JSON body or as a query parameter.
+  * `source` / `from` / `src` (String, optional): The source language code (e.g. `ja`, `ko`, `zh`). Defaults to `auto`.
+  * `target` / `to` / `tgt` (String, optional): The target language code (e.g. `en`). Defaults to `en`.
+* **Example (GET Request):**
+  ```bash
+  curl -s "http://localhost:8765/translate?text=こんにちは&source=ja&target=en"
+  ```
+* **Example (POST Request with JSON Body):**
+  ```bash
+  curl -s -X POST http://localhost:8765/translate \
+    -H "Content-Type: application/json" \
+    -d '{"text": "こんにちは", "source": "ja", "target": "en"}'
+  ```
+* **Sample Success Response:**
+  ```json
+  {
+    "translated": "Hello"
+  }
+  ```
+* **Sample Error Response:**
+  ```json
+  {
+    "error": "Parameter 'text' is required"
+  }
+  ```
+

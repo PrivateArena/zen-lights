@@ -11,6 +11,7 @@ import (
 	"github.com/zen-lights/zen-lights/internal/ocr"
 	"github.com/zen-lights/zen-lights/internal/ocr/server"
 	"github.com/zen-lights/zen-lights/internal/preview"
+	"github.com/zen-lights/zen-lights/internal/translate"
 	"github.com/zen-lights/zen-lights/pkg/game"
 	"github.com/zen-lights/zen-lights/pkg/pipeline"
 
@@ -162,6 +163,14 @@ func runOCRServer(args []string) {
 		log.Printf("Loaded language profiles from %s", *configPath)
 	}
 
+	// Initialize translation manager
+	transManager := translate.NewManager(translate.DefaultConfig())
+	if err := transManager.LoadConfig(*configPath); err != nil {
+		log.Printf("Warning: failed to load translation config from %s: %v", *configPath, err)
+	} else {
+		log.Printf("Loaded translation profiles from %s", *configPath)
+	}
+
 	finalDefaultModel := *defaultModel
 	userSetDefaultModel := false
 	for _, arg := range args {
@@ -174,7 +183,7 @@ func runOCRServer(args []string) {
 		finalDefaultModel = manager.DefaultModel()
 	}
 
-	srv := server.New(*addr, manager, finalDefaultModel)
+	srv := server.New(*addr, manager, finalDefaultModel, transManager)
 	if err := srv.Start(); err != nil {
 		log.Fatal("ocr-server:", err)
 	}
