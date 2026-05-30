@@ -118,40 +118,8 @@ func runOCRServer(args []string) {
 	fs := flag.NewFlagSet("ocr-server", flag.ExitOnError)
 	addr := fs.String("addr", "localhost:8080", "address for the OCR server")
 	configPath := fs.String("config", "config.json", "path to the language profiles config file")
-	defaultModel := fs.String("default-model", "ch", "default OCR model/language to use if not specified in API")
+	defaultModel := fs.String("default-model", "ch", "default OCR model/language profile to use")
 	fs.Parse(args)
-
-	// Robustly handle mixed positional args (e.g. "ocr-server 8765 -default-model en")
-	positionalArgs := fs.Args()
-	if len(positionalArgs) > 0 && !strings.HasPrefix(positionalArgs[0], "-") {
-		val := positionalArgs[0]
-		if isPurePort(val) {
-			*addr = "localhost:" + val
-		} else {
-			*addr = val
-		}
-		positionalArgs = positionalArgs[1:]
-	}
-
-	for i := 0; i < len(positionalArgs); i++ {
-		arg := positionalArgs[i]
-		if arg == "-default-model" || arg == "--default-model" {
-			if i+1 < len(positionalArgs) {
-				*defaultModel = positionalArgs[i+1]
-				i++
-			}
-		} else if arg == "-config" || arg == "--config" {
-			if i+1 < len(positionalArgs) {
-				*configPath = positionalArgs[i+1]
-				i++
-			}
-		} else if arg == "-addr" || arg == "--addr" {
-			if i+1 < len(positionalArgs) {
-				*addr = positionalArgs[i+1]
-				i++
-			}
-		}
-	}
 
 	manager := ocr.NewManager(ocr.DefaultOptions())
 
@@ -170,35 +138,12 @@ func runOCRServer(args []string) {
 	} else {
 		log.Printf("Loaded translation profiles from %s", *configPath)
 	}
+	defer transManager.Close()
 
-	finalDefaultModel := *defaultModel
-	userSetDefaultModel := false
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-default-model") || strings.HasPrefix(arg, "--default-model") {
-			userSetDefaultModel = true
-			break
-		}
-	}
-	if !userSetDefaultModel && manager.DefaultModel() != "" {
-		finalDefaultModel = manager.DefaultModel()
-	}
-
-	srv := server.New(*addr, manager, finalDefaultModel, transManager)
+	srv := server.New(*addr, manager, *defaultModel, transManager)
 	if err := srv.Start(); err != nil {
 		log.Fatal("ocr-server:", err)
 	}
-}
-
-func isPurePort(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func totalKills(r *pipeline.Result) int {
