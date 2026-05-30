@@ -16,15 +16,20 @@ import (
 
 // Server provides a persistent HTTP API for multi-language OCR.
 type Server struct {
-	manager *ocr.Manager
-	addr    string
+	manager      *ocr.Manager
+	addr         string
+	defaultModel string
 }
 
 // New creates a new OCR server.
-func New(addr string, manager *ocr.Manager) *Server {
+func New(addr string, manager *ocr.Manager, defaultModel string) *Server {
+	if defaultModel == "" {
+		defaultModel = "ch"
+	}
 	return &Server{
-		addr:    addr,
-		manager: manager,
+		addr:         addr,
+		manager:      manager,
+		defaultModel: defaultModel,
 	}
 }
 
@@ -33,13 +38,30 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/recognize", s.handleRecognize)
 	mux.HandleFunc("/status", s.handleStatus)
+	mux.HandleFunc("/default-model", s.handleDefaultModel)
 
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", s.addr, err)
 	}
 
-	log.Printf("🤖 OCR Server listening on http://%s", ln.Addr())
+	host, port, err := net.SplitHostPort(ln.Addr().String())
+	if err == nil {
+		if host == "" || host == "::" || host == "0.0.0.0" {
+			host = "127.0.0.1"
+		}
+		log.Printf("🤖 OCR Server listening on http://%s:%s", host, port)
+	} else {
+		log.Printf("🤖 OCR Server listening on http://%s", ln.Addr())
+	}
+
+	// Pre-load/verify the default model at startup
+	log.Printf("⚙️ OCR: Pre-loading default model %q...", s.defaultModel)
+	_, err = s.manager.GetClient(s.defaultModel)
+	if err != nil {
+		log.Printf("Warning: failed to pre-load default model %q: %v", s.defaultModel, err)
+	}
+
 	return http.Serve(ln, mux)
 }
 
@@ -59,10 +81,13 @@ func (s *Server) handleRecognize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Get language ID
-	langID := r.URL.Query().Get("lang")
+	// 1. Get language/model ID
+	langID := r.URL.Query().Get("model")
 	if langID == "" {
-		langID = "ch" // Default to Chinese
+		langID = r.URL.Query().Get("lang")
+	}
+	if langID == "" {
+		langID = s.defaultModel
 	}
 
 	// 2. Parse image from request body (multipart or raw)
@@ -118,4 +143,54 @@ func (s *Server) jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(recognizeResponse{Error: msg})
+}
+
+func (s *Server) handleDefaultModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"default_model": s.defaultModel,
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	model := r.URL.Query().Get("model")
+	if model == "" {
+		model = r.URL.Query().Get("lang")
+	}
+	if model == "" {
+		var body struct {
+			Model string `json:"model"`
+			Lang  string `json:"lang"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			model = body.Model
+			if model == "" {
+				model = body.Lang
+			}
+		}
+	}
+
+	if model == "" {
+		s.jsonError(w, "Model parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the model exists in the profiles
+	if !s.manager.HasLanguage(model) {
+		s.jsonError(w, fmt.Sprintf("Model/Language %q not available in config", model), http.StatusNotFound)
+		return
+	}
+
+	s.defaultModel = model
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":        "success",
+		"default_model": s.defaultModel,
+	})
 }
