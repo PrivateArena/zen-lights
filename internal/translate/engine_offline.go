@@ -16,9 +16,12 @@ var (
 )
 
 // initORT sets the shared library path and initializes the environment.
-func initORT() error {
+func initORT(sharedLibPath string) error {
 	ortInitOnce.Do(func() {
-		libPath := os.Getenv("ORT_SHARED_LIB_PATH")
+		libPath := sharedLibPath
+		if libPath == "" {
+			libPath = os.Getenv("ORT_SHARED_LIB_PATH")
+		}
 		if libPath == "" {
 			candidates := []string{
 				"/media/jang/home/Deve/zen-tts/piper/libonnxruntime.so.1.24.2",
@@ -58,8 +61,8 @@ type OfflineEngine struct {
 }
 
 // NewOfflineEngine creates a new offline translation engine from a profile.
-func NewOfflineEngine(profile TranslationProfile, maxTokens int) (*OfflineEngine, error) {
-	if err := initORT(); err != nil {
+func NewOfflineEngine(profile TranslationProfile, sharedLibPath string, maxTokens int) (*OfflineEngine, error) {
+	if err := initORT(sharedLibPath); err != nil {
 		return nil, fmt.Errorf("init onnxruntime: %w", err)
 	}
 

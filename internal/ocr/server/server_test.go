@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/zen-lights/zen-lights/internal/ocr"
+	"github.com/zen-lights/zen-lights/internal/summarize"
 	"github.com/zen-lights/zen-lights/internal/translate"
 )
 
@@ -23,7 +24,7 @@ func TestDefaultModelEndpoints(t *testing.T) {
 	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
 
 	// Create server
-	srv := New(":0", manager, "ch", transManager)
+	srv := New(":0", manager, "ch", transManager, nil)
 
 	// Create test HTTP recorder for GET /default-model
 	req, err := http.NewRequest("GET", "/default-model", nil)
@@ -84,7 +85,7 @@ func TestDefaultModelEndpoints(t *testing.T) {
 func TestTranslateEndpoint(t *testing.T) {
 	manager := ocr.NewManager(ocr.DefaultOptions())
 	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
-	srv := New(":0", manager, "ch", transManager)
+	srv := New(":0", manager, "ch", transManager, nil)
 
 	// Since we mock the actual online translation, let's write a simple validation 
 	// for the missing query/body parameter error.
@@ -97,5 +98,49 @@ func TestTranslateEndpoint(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400 for empty request, got %d", rr.Code)
+	}
+}
+
+func TestSummarizeEndpoint(t *testing.T) {
+	manager := ocr.NewManager(ocr.DefaultOptions())
+	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
+	sumManager := summarize.NewManager(summarize.Config{
+		Algorithm: summarize.AlgoTextRank,
+	})
+
+	srv := New(":0", manager, "ch", transManager, sumManager)
+
+	// 1. Test missing 'text' parameter
+	req, err := http.NewRequest("GET", "/summarize", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	srv.handleSummarize(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for empty text, got %d", rr.Code)
+	}
+
+	// 2. Test successful summarization with extractive engine
+	reqText := "First sentence is interesting. Second sentence is also quite interesting. Third sentence is not so interesting."
+	req, err = http.NewRequest("GET", "/summarize?text="+reqText+"&count=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	srv.handleSummarize(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp summarizeResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(resp.Summary) != 2 {
+		t.Errorf("expected 2 summary sentences, got %d", len(resp.Summary))
 	}
 }

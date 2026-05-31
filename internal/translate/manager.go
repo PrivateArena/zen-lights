@@ -103,7 +103,7 @@ func (m *Manager) GetOfflineEngine(profileID string) (*OfflineEngine, error) {
 	}
 
 	log.Printf("⚙️ Translation: Loading offline model for profile %q...", profileID)
-	eng, err := NewOfflineEngine(prof, m.config.MaxTokens)
+	eng, err := NewOfflineEngine(prof, m.config.SharedLibPath, m.config.MaxTokens)
 	if err != nil {
 		return nil, fmt.Errorf("init offline engine for %q: %w", profileID, err)
 	}
@@ -119,7 +119,7 @@ func (m *Manager) GetOnlineEngine() *OnlineEngine {
 	defer m.mu.Unlock()
 
 	if m.onlineEngine == nil {
-		m.onlineEngine = NewOnlineEngine()
+		m.onlineEngine = NewOnlineEngine(m.config.Online)
 	}
 	return m.onlineEngine
 }

@@ -37,11 +37,19 @@ type TranslationProfile struct {
 	PadTokenID  int64  `json:"pad_token_id"` // Typically 65000 for Helsinki models
 }
 
+// OnlineConfig defines the custom configuration for the online engine.
+type OnlineConfig struct {
+	APIURL    string `json:"api_url"`    // Custom URL/proxy for Google Translate API
+	TimeoutMS int    `json:"timeout_ms"` // HTTP request timeout in milliseconds
+}
+
 // Config represents the translation configuration.
 type Config struct {
-	Mode      Mode                 `json:"mode"`       // "online", "offline", "auto"
-	MaxTokens int                  `json:"max_tokens"` // Max tokens to generate in offline mode (default 128)
-	Profiles  []TranslationProfile `json:"profiles"`
+	Mode          Mode                 `json:"mode"`            // "online", "offline", "auto"
+	MaxTokens     int                  `json:"max_tokens"`      // Max tokens to generate in offline mode (default 128)
+	SharedLibPath string               `json:"shared_lib_path"` // Path to libonnxruntime.so
+	Online        OnlineConfig         `json:"online"`          // Online translation parameters
+	Profiles      []TranslationProfile `json:"profiles"`
 }
 
 // DefaultConfig returns a sane default translation configuration.

@@ -52,5 +52,26 @@
     "num_layers": 18,
     "vocab_size": 262144,
     "max_tokens_per_sentence": 80
+  },
+  "translation": {
+    "mode": "auto",
+    "max_tokens": 128,
+    "shared_lib_path": "/media/jang/home/Deve/zen-tts/piper/libonnxruntime.so.1.24.2",
+    "online": {
+      "api_url": "https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s",
+      "timeout_ms": 10000
+    },
+    "profiles": [
+      {
+        "id": "ja-en",
+        "encoder_path": "/media/jang/home/Deve/zen-lights/models/ja-en/encoder_model.onnx",
+        "decoder_path": "/media/jang/home/Deve/zen-lights/models/ja-en/decoder_model.onnx",
+        "source_spm": "/media/jang/home/Deve/zen-lights/models/ja-en/source.spm",
+        "target_spm": "/media/jang/home/Deve/zen-lights/models/ja-en/target.spm",
+        "vocab_path": "/media/jang/home/Deve/zen-lights/models/ja-en/vocab.json",
+        "eos_token_id": 0,
+        "pad_token_id": 65000
+      }
+    ]
   }
 }

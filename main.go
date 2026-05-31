@@ -11,6 +11,7 @@ import (
 	"github.com/zen-lights/zen-lights/internal/ocr"
 	"github.com/zen-lights/zen-lights/internal/ocr/server"
 	"github.com/zen-lights/zen-lights/internal/preview"
+	"github.com/zen-lights/zen-lights/internal/summarize"
 	"github.com/zen-lights/zen-lights/internal/translate"
 	"github.com/zen-lights/zen-lights/pkg/game"
 	"github.com/zen-lights/zen-lights/pkg/pipeline"
@@ -140,7 +141,15 @@ func runOCRServer(args []string) {
 	}
 	defer transManager.Close()
 
-	srv := server.New(*addr, manager, *defaultModel, transManager)
+	// Initialize summarize manager
+	sumManager := summarize.NewManager(summarize.Config{})
+	if err := sumManager.LoadConfig(*configPath); err != nil {
+		log.Printf("Warning: failed to load summarize config from %s: %v", *configPath, err)
+	} else {
+		log.Printf("Loaded summarize profiles from %s", *configPath)
+	}
+
+	srv := server.New(*addr, manager, *defaultModel, transManager, sumManager)
 	if err := srv.Start(); err != nil {
 		log.Fatal("ocr-server:", err)
 	}

@@ -13,6 +13,7 @@ import (
 	_ "image/png"
 
 	"github.com/zen-lights/zen-lights/internal/ocr"
+	"github.com/zen-lights/zen-lights/internal/summarize"
 	"github.com/zen-lights/zen-lights/internal/translate"
 )
 
@@ -20,12 +21,13 @@ import (
 type Server struct {
 	manager          *ocr.Manager
 	translateManager *translate.Manager
+	summarizeManager *summarize.Manager
 	addr             string
 	defaultModel     string
 }
 
 // New creates a new OCR server.
-func New(addr string, manager *ocr.Manager, defaultModel string, translateManager *translate.Manager) *Server {
+func New(addr string, manager *ocr.Manager, defaultModel string, translateManager *translate.Manager, summarizeManager *summarize.Manager) *Server {
 	if defaultModel == "" {
 		defaultModel = "ch"
 	}
@@ -33,6 +35,7 @@ func New(addr string, manager *ocr.Manager, defaultModel string, translateManage
 		addr:             addr,
 		manager:          manager,
 		translateManager: translateManager,
+		summarizeManager: summarizeManager,
 		defaultModel:     defaultModel,
 	}
 }
@@ -44,6 +47,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/default-model", s.handleDefaultModel)
 	mux.HandleFunc("/translate", s.handleTranslate)
+	mux.HandleFunc("/summarize", s.handleSummarize)
 
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -277,4 +281,77 @@ func (s *Server) jsonTranslateError(w http.ResponseWriter, msg string, code int)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(translateResponse{Error: msg})
+}
+
+type summarizeRequest struct {
+	Text     string `json:"text"`
+	Count    int    `json:"count"`
+	Language string `json:"language"`
+}
+
+type summarizeResponse struct {
+	Summary []string `json:"summary,omitempty"`
+	Error   string   `json:"error,omitempty"`
+}
+
+func (s *Server) handleSummarize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.summarizeManager == nil {
+		s.jsonSummarizeError(w, "Summarization engine not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req summarizeRequest
+
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			// fallback to parameters if body decoding fails
+		}
+	}
+
+	if req.Text == "" {
+		req.Text = r.URL.Query().Get("text")
+	}
+	if req.Count <= 0 {
+		var countVal int
+		_, err := fmt.Sscanf(r.URL.Query().Get("count"), "%d", &countVal)
+		if err == nil && countVal > 0 {
+			req.Count = countVal
+		} else {
+			req.Count = 3 // Default
+		}
+	}
+	if req.Language == "" {
+		req.Language = r.URL.Query().Get("language")
+		if req.Language == "" {
+			req.Language = r.URL.Query().Get("lang")
+		}
+		if req.Language == "" {
+			req.Language = "en"
+		}
+	}
+
+	if req.Text == "" {
+		s.jsonSummarizeError(w, "Parameter 'text' is required", http.StatusBadRequest)
+		return
+	}
+
+	summary, err := s.summarizeManager.Summarize(req.Text, req.Count, req.Language)
+	if err != nil {
+		s.jsonSummarizeError(w, fmt.Sprintf("Summarization failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(summarizeResponse{Summary: summary})
+}
+
+func (s *Server) jsonSummarizeError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(summarizeResponse{Error: msg})
 }

@@ -19,7 +19,7 @@ func TestOnlineEngine_Translate(t *testing.T) {
 	defer server.Close()
 
 	// Initialize engine and overwrite client transport to use mock server
-	engine := NewOnlineEngine()
+	engine := NewOnlineEngine(OnlineConfig{})
 	engine.client.Transport = &mockTransport{mockServerURL: server.URL}
 
 	translated, err := engine.Translate(context.Background(), "こんにちは世界", "ja", "en")

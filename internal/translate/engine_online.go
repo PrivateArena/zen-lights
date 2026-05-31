@@ -14,14 +14,26 @@ import (
 // OnlineEngine implements Engine using the free Google Translate API.
 type OnlineEngine struct {
 	client *http.Client
+	apiURL string
 }
 
 // NewOnlineEngine creates a new online translation engine.
-func NewOnlineEngine() *OnlineEngine {
+func NewOnlineEngine(cfg OnlineConfig) *OnlineEngine {
+	timeout := 10 * time.Second
+	if cfg.TimeoutMS > 0 {
+		timeout = time.Duration(cfg.TimeoutMS) * time.Millisecond
+	}
+
+	apiURL := cfg.APIURL
+	if apiURL == "" {
+		apiURL = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s"
+	}
+
 	return &OnlineEngine{
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: timeout,
 		},
+		apiURL: apiURL,
 	}
 }
 
@@ -40,7 +52,7 @@ func (e *OnlineEngine) Translate(ctx context.Context, text, srcLang, tgtLang str
 	}
 
 	apiURL := fmt.Sprintf(
-		"https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s",
+		e.apiURL,
 		url.QueryEscape(srcLang),
 		url.QueryEscape(tgtLang),
 		url.QueryEscape(text),
