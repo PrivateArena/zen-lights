@@ -43,5 +43,14 @@
       "rec_vocab_path": "/media/jang/home/Deve/zen-lights/models/cyrillic_dict.txt",
       "det_model_path": "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
     }
-  ]
+  ],
+  "summarize": {
+    "algorithm": "llm",
+    "shared_lib_path": "/media/jang/home/Deve/zen-tts/piper/libonnxruntime.so.1.24.2",
+    "model_path": "/media/jang/home/Deve/zen-news/models/model.onnx",
+    "model_dir": "/media/jang/home/Deve/zen-news/models/",
+    "num_layers": 18,
+    "vocab_size": 262144,
+    "max_tokens_per_sentence": 80
+  }
 }

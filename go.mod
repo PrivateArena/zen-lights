@@ -3,7 +3,7 @@ module github.com/zen-lights/zen-lights
 go 1.25.0
 
 require (
-	github.com/yalue/onnxruntime_go v1.11.0
+	github.com/yalue/onnxruntime_go v1.27.0
 	golang.org/x/image v0.40.0
 )
 
