@@ -1,0 +1,164 @@
+# Zenlights Paint Server HTTP API Documentation
+
+The `zenlights` unified server integrates a production-grade, local image generation engine (ported from `zen-paint`). It supports ONNX-based Text-to-Image models using dual architectures:
+1. **SDXL / SDXL-Turbo / LCM**: Fast, high-quality latent diffusion pipelines.
+2. **FLUX.2 / Bonsai**: Multi-modal Diffusion Transformer (MMDiT) flow-matching pipelines.
+
+All inference is performed locally using **ONNX Runtime** and can utilize CPU multi-threading or hardware acceleration (CUDA, ROCm, DirectML, OpenVINO).
+
+---
+
+## ⚙️ Configuration (`config.json`)
+
+The paint engine properties are configured under the `"paint"` block in `config.json`:
+
+```json
+  "paint": {
+    "default_model": "sdxl-turbo",
+    "execution_provider": "cpu",
+    "num_threads": 0,
+    "output_dir": "/tmp/zen-paint",
+    "max_concurrency": 1,
+    "models_dir": "/media/jang/home/Deve/zen-paint/models"
+  }
+```
+
+### Config Options
+* `default_model` (String, required): Name of the model directory to load automatically at server startup (e.g., `"sdxl-turbo"`).
+* `execution_provider` (String, optional): Hardware acceleration backend. Options: `"cpu"`, `"cuda"` (NVIDIA), `"rocm"` (AMD), `"directml"` (Windows), `"openvino"` (Intel). Defaults to `"cpu"`.
+* `num_threads` (Integer, optional): Number of CPU execution threads. `0` defaults to standard auto-detection (capped at `16`).
+* `output_dir` (String, required): Directory path on disk where generated PNG images are written.
+* `max_concurrency` (Integer, optional): Max concurrent generation requests processed simultaneously. Excess requests receive a `429 Too Many Requests` response. Defaults to `1`.
+* `models_dir` (String, required): Absolute folder path containing model subdirectories. This lets you reference weights without copying large gigabyte files.
+
+---
+
+## 📡 API Endpoints
+
+All endpoints are hosted on the unified server port (default: `8080`) and are prefixed with `/paint`.
+
+### 1. Engine Status
+Retrieves current engine status, loaded model name, and backend execution metadata.
+
+* **Endpoint:** `GET /paint/status`
+* **Response:** `200 OK`
+* **Sample Response:**
+  ```json
+  {
+    "info": "SDXL pipeline | dir=/media/jang/home/Deve/zen-paint/models/sdxl-turbo threads=12 provider=cpu",
+    "model": "sdxl-turbo",
+    "status": "ok"
+  }
+  ```
+* **Example:**
+  ```bash
+  curl -i http://localhost:8080/paint/status
+  ```
+
+---
+
+### 2. List Models
+Lists all valid model directories under the configured `models_dir` containing a `model.json` descriptor.
+
+* **Endpoint:** `GET /paint/models`
+* **Response:** `200 OK`
+* **Sample Response:**
+  ```json
+  {
+    "models": [
+      "sdxl-turbo",
+      "lcm-dreamshaper",
+      "bonsai"
+    ]
+  }
+  ```
+* **Example:**
+  ```bash
+  curl -i http://localhost:8080/paint/models
+  ```
+
+---
+
+### 3. Load Model
+Triggers dynamic, on-demand loading of a different model from the available list.
+
+* **Endpoint:** `POST /paint/load`
+* **Request Fields:**
+  * `model` (String, required): Name of the model subdirectory to load.
+* **Sample Request:**
+  ```json
+  {
+    "model": "bonsai"
+  }
+  ```
+* **Sample Response:**
+  ```json
+  {
+    "model": "bonsai",
+    "status": "loaded"
+  }
+  ```
+* **Example:**
+  ```bash
+  curl -s -X POST http://localhost:8080/paint/load \
+    -H "Content-Type: application/json" \
+    -d '{"model": "bonsai"}'
+  ```
+
+---
+
+### 4. Generate Image
+Generates a new PNG image from a text prompt.
+
+* **Endpoint:** `POST /paint/generate`
+* **Request Fields:**
+  * `prompt` (String, required): Text description of the image to generate.
+  * `negative_prompt` (String, optional): Elements to exclude (only utilized by SDXL backends).
+  * `width` (Integer, optional): Width of the image. Defaults to `512`.
+  * `height` (Integer, optional): Height of the image. Defaults to `512`.
+  * `steps` (Integer, optional): Number of denoising inference steps. Defaults to `4`.
+  * `seed` (Integer, optional): Random seed. Defaults to current timestamp.
+* **Sample Request:**
+  ```json
+  {
+    "prompt": "A beautiful cinematic digital painting of antigravity physics in a vibrant cyberpunk city",
+    "width": 512,
+    "height": 512,
+    "steps": 4,
+    "seed": 42
+  }
+  ```
+* **Sample Response:**
+  ```json
+  {
+    "path": "/tmp/zen-paint/zp_1715456729000_42.png",
+    "duration_ms": 3280,
+    "width": 512,
+    "height": 512,
+    "seed": 42
+  }
+  ```
+* **Example:**
+  ```bash
+  curl -s -X POST http://localhost:8080/paint/generate \
+    -H "Content-Type: application/json" \
+    -d '{
+      "prompt": "A vibrant digital drawing of a flying cat",
+      "steps": 4,
+      "width": 512,
+      "height": 512
+    }'
+  ```
+
+---
+
+### 5. Serve Output Images
+Downloads or displays generated PNG files directly from the server.
+
+* **Endpoint:** `GET /paint/outputs/:filename`
+* **Response:** `200 OK` (binary image data)
+* **Example:**
+  To retrieve an image returned in the generation result path (e.g., `zp_1715456729000_42.png`):
+  ```bash
+  curl -o output.png http://localhost:8080/paint/outputs/zp_1715456729000_42.png
+  ```

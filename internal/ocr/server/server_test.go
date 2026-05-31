@@ -24,7 +24,7 @@ func TestDefaultModelEndpoints(t *testing.T) {
 	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
 
 	// Create server
-	srv := New(":0", manager, "ch", transManager, nil)
+	srv := New(":0", manager, "ch", transManager, nil, nil)
 
 	// Create test HTTP recorder for GET /default-model
 	req, err := http.NewRequest("GET", "/default-model", nil)
@@ -85,7 +85,7 @@ func TestDefaultModelEndpoints(t *testing.T) {
 func TestTranslateEndpoint(t *testing.T) {
 	manager := ocr.NewManager(ocr.DefaultOptions())
 	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
-	srv := New(":0", manager, "ch", transManager, nil)
+	srv := New(":0", manager, "ch", transManager, nil, nil)
 
 	// Since we mock the actual online translation, let's write a simple validation
 	// for the missing query/body parameter error.
@@ -108,7 +108,7 @@ func TestSummarizeEndpoint(t *testing.T) {
 		Algorithm: summarize.AlgoTextRank,
 	})
 
-	srv := New(":0", manager, "ch", transManager, sumManager)
+	srv := New(":0", manager, "ch", transManager, sumManager, nil)
 
 	// 1. Test missing 'text' parameter
 	req, err := http.NewRequest("GET", "/summarize", nil)
