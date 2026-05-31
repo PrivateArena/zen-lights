@@ -9,5 +9,6 @@ require (
 
 require (
 	github.com/masacento/go-sentencepiece v0.0.0-20251214132729-c273314784e7 // indirect
+	gonum.org/v1/gonum v0.17.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
