@@ -87,7 +87,7 @@ func TestTranslateEndpoint(t *testing.T) {
 	transManager := translate.NewManager(translate.Config{Mode: translate.ModeOnline})
 	srv := New(":0", manager, "ch", transManager, nil)
 
-	// Since we mock the actual online translation, let's write a simple validation 
+	// Since we mock the actual online translation, let's write a simple validation
 	// for the missing query/body parameter error.
 	req, err := http.NewRequest("GET", "/translate", nil)
 	if err != nil {

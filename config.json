@@ -73,5 +73,13 @@
         "pad_token_id": 65000
       }
     ]
+  },
+  "paint": {
+    "default_model": "sdxl-turbo",
+    "execution_provider": "cpu",
+    "num_threads": 0,
+    "output_dir": "/tmp/zen-paint",
+    "max_concurrency": 1,
+    "models_dir": "/media/jang/home/Deve/zen-paint/models"
   }
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/zen-lights/zen-lights/internal/ocr"
 	"github.com/zen-lights/zen-lights/internal/ocr/server"
+	"github.com/zen-lights/zen-lights/internal/paint"
 	"github.com/zen-lights/zen-lights/internal/preview"
 	"github.com/zen-lights/zen-lights/internal/summarize"
 	"github.com/zen-lights/zen-lights/internal/translate"
@@ -34,8 +35,8 @@ func main() {
 	switch os.Args[1] {
 	case "detect":
 		runDetect(os.Args[2:])
-	case "ocr-server":
-		runOCRServer(os.Args[2:])
+	case "server":
+		runServer(os.Args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -48,7 +49,7 @@ func printUsage() {
 	fmt.Println("Usage: zenlights <command> [options]")
 	fmt.Println("\nCommands:")
 	fmt.Println("  detect      Run the highlight extraction pipeline (default)")
-	fmt.Println("  ocr-server  Start a persistent HTTP OCR server with multi-language support")
+	fmt.Println("  server      Start a persistent unified HTTP API server (OCR, translation, summarization, paint)")
 	fmt.Println("\nRun 'zenlights <command> -h' for more info on a command.")
 }
 
@@ -115,10 +116,10 @@ func runDetect(args []string) {
 	}
 }
 
-func runOCRServer(args []string) {
-	fs := flag.NewFlagSet("ocr-server", flag.ExitOnError)
-	addr := fs.String("addr", "localhost:8080", "address for the OCR server")
-	configPath := fs.String("config", "config.json", "path to the language profiles config file")
+func runServer(args []string) {
+	fs := flag.NewFlagSet("server", flag.ExitOnError)
+	addr := fs.String("addr", "localhost:8080", "address for the unified server")
+	configPath := fs.String("config", "config.json", "path to the configuration profiles")
 	defaultModel := fs.String("default-model", "ch", "default OCR model/language profile to use")
 	fs.Parse(args)
 
@@ -149,9 +150,18 @@ func runOCRServer(args []string) {
 		log.Printf("Loaded summarize profiles from %s", *configPath)
 	}
 
-	srv := server.New(*addr, manager, *defaultModel, transManager, sumManager)
+	// Initialize paint manager
+	paintManager := paint.NewManager(paint.DefaultConfig)
+	if err := paintManager.LoadConfig(*configPath); err != nil {
+		log.Printf("Warning: failed to load paint config from %s: %v", *configPath, err)
+	} else {
+		log.Printf("Loaded paint profiles from %s", *configPath)
+	}
+	defer paintManager.Close()
+
+	srv := server.New(*addr, manager, *defaultModel, transManager, sumManager, paintManager)
 	if err := srv.Start(); err != nil {
-		log.Fatal("ocr-server:", err)
+		log.Fatal("server:", err)
 	}
 }
 

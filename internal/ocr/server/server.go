@@ -13,21 +13,30 @@ import (
 	_ "image/png"
 
 	"github.com/zen-lights/zen-lights/internal/ocr"
+	"github.com/zen-lights/zen-lights/internal/paint"
 	"github.com/zen-lights/zen-lights/internal/summarize"
 	"github.com/zen-lights/zen-lights/internal/translate"
 )
 
-// Server provides a persistent HTTP API for multi-language OCR.
+// Server provides a persistent HTTP API for OCR, translation, summarization, and image generation.
 type Server struct {
 	manager          *ocr.Manager
 	translateManager *translate.Manager
 	summarizeManager *summarize.Manager
+	paintManager     *paint.Manager
 	addr             string
 	defaultModel     string
 }
 
-// New creates a new OCR server.
-func New(addr string, manager *ocr.Manager, defaultModel string, translateManager *translate.Manager, summarizeManager *summarize.Manager) *Server {
+// New creates a new unified server.
+func New(
+	addr string,
+	manager *ocr.Manager,
+	defaultModel string,
+	translateManager *translate.Manager,
+	summarizeManager *summarize.Manager,
+	paintManager *paint.Manager,
+) *Server {
 	if defaultModel == "" {
 		defaultModel = "ch"
 	}
@@ -36,6 +45,7 @@ func New(addr string, manager *ocr.Manager, defaultModel string, translateManage
 		manager:          manager,
 		translateManager: translateManager,
 		summarizeManager: summarizeManager,
+		paintManager:     paintManager,
 		defaultModel:     defaultModel,
 	}
 }
@@ -48,6 +58,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/default-model", s.handleDefaultModel)
 	mux.HandleFunc("/translate", s.handleTranslate)
 	mux.HandleFunc("/summarize", s.handleSummarize)
+
+	// Register paint endpoints if the manager is initialized
+	if s.paintManager != nil {
+		paint.RegisterHandlers(mux, s.paintManager)
+	}
 
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
