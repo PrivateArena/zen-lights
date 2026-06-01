@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -8,6 +9,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -53,9 +56,8 @@ func New(
 // Start runs the HTTP server.
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/recognize", s.handleRecognize)
+	mux.HandleFunc("/ocr", s.handleOCR)
 	mux.HandleFunc("/status", s.handleStatus)
-	mux.HandleFunc("/default-model", s.handleDefaultModel)
 	mux.HandleFunc("/translate", s.handleTranslate)
 	mux.HandleFunc("/summarize", s.handleSummarize)
 
@@ -99,77 +101,80 @@ type recognizeResponse struct {
 	Error   string           `json:"error,omitempty"`
 }
 
-func (s *Server) handleRecognize(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+// checkHelp checks if a manual help request is made via query param (?help=true) or json body ({"help": true})
+func checkHelp(r *http.Request) (bool, []byte) {
+	if r.URL.Query().Get("help") == "true" {
+		return true, nil
 	}
+	if (r.Method == http.MethodPost || r.Method == http.MethodPut) && r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil {
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			var tmp struct {
+				Help any `json:"help"`
+			}
+			if err := json.Unmarshal(bodyBytes, &tmp); err == nil {
+				if b, ok := tmp.Help.(bool); ok && b {
+					return true, bodyBytes
+				}
+				if s, ok := tmp.Help.(string); ok && (strings.ToLower(s) == "true" || s == "1" || strings.ToLower(s) == "yes") {
+					return true, bodyBytes
+				}
+			}
+		}
+	}
+	return false, nil
+}
 
-	// 1. Get language/model ID
-	langID := r.URL.Query().Get("model")
-	if langID == "" {
-		langID = r.URL.Query().Get("lang")
-	}
-	if langID == "" {
-		langID = s.defaultModel
-	}
-
-	// 2. Parse image from request body (multipart or raw)
-	var img image.Image
-	file, _, err := r.FormFile("image")
+// sendHelp reads a markdown guide and writes it back as markdown (for 200) or wraps it in JSON error (for non-200)
+func (s *Server) sendHelp(w http.ResponseWriter, filename string, errStr string, statusCode int) {
+	var helpContent string
+	data, err := os.ReadFile(filename)
 	if err == nil {
-		defer file.Close()
-		img, _, err = image.Decode(file)
+		helpContent = string(data)
 	} else {
-		// Try reading raw body if multipart fails
-		img, _, err = image.Decode(r.Body)
-	}
-
-	if err != nil {
-		s.jsonError(w, fmt.Sprintf("Failed to decode image: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	// 3. Get OCR client for the language
-	client, err := s.manager.GetClient(langID)
-	if err != nil {
-		s.jsonError(w, fmt.Sprintf("Language %q not available: %v", langID, err), http.StatusNotFound)
-		return
-	}
-
-	// 4. Run OCR
-	// Convert image to RGB24 frameData for Client.ReadFullFrame
-	bounds := img.Bounds()
-	wImg, hImg := bounds.Dx(), bounds.Dy()
-	frameData := make([]byte, wImg*hImg*3)
-	for y := 0; y < hImg; y++ {
-		for x := 0; x < wImg; x++ {
-			r, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			idx := (y*wImg + x) * 3
-			frameData[idx] = uint8(r >> 8)
-			frameData[idx+1] = uint8(g >> 8)
-			frameData[idx+2] = uint8(b >> 8)
+		// Try traversing parent directories (up to 3 levels)
+		for i := 1; i <= 3; i++ {
+			prefix := ""
+			for j := 0; j < i; j++ {
+				prefix += "../"
+			}
+			data, err = os.ReadFile(prefix + filename)
+			if err == nil {
+				helpContent = string(data)
+				break
+			}
 		}
 	}
 
-	results, err := client.ReadFullFrame(frameData, wImg, hImg)
-	if err != nil {
-		s.jsonError(w, fmt.Sprintf("OCR processing failed: %v", err), http.StatusInternalServerError)
+	if helpContent == "" {
+		helpContent = fmt.Sprintf("Help guide %s not found on the server.", filename)
+	}
+
+	if errStr != "" || statusCode != http.StatusOK {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error": errStr,
+			"help":  helpContent,
+		})
 		return
 	}
 
-	// 5. Respond
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(recognizeResponse{Results: results})
+	// Manual request: print raw markdown for beautiful terminal viewing
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(helpContent))
 }
 
-func (s *Server) jsonError(w http.ResponseWriter, msg string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(recognizeResponse{Error: msg})
-}
+// handleOCR unifies OCR recognition and model settings selection.
+func (s *Server) handleOCR(w http.ResponseWriter, r *http.Request) {
+	isHelp, _ := checkHelp(r)
+	if isHelp {
+		s.sendHelp(w, "OCR_SERVER_API.md", "", http.StatusOK)
+		return
+	}
 
-func (s *Server) handleDefaultModel(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
@@ -179,44 +184,145 @@ func (s *Server) handleDefaultModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendHelp(w, "OCR_SERVER_API.md", "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	model := r.URL.Query().Get("model")
-	if model == "" {
-		model = r.URL.Query().Get("lang")
+	// Read body bytes to safely inspect and reuse
+	var bodyBytes []byte
+	if r.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(r.Body)
+		if err == nil {
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
 	}
-	if model == "" {
+
+	contentType := r.Header.Get("Content-Type")
+	var hasImage bool
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		r.ParseMultipartForm(32 << 20)
+		_, _, errForm := r.FormFile("image")
+		if errForm == nil {
+			hasImage = true
+		}
+	} else if len(bodyBytes) > 0 {
+		if !strings.Contains(contentType, "application/json") {
+			hasImage = true
+		}
+	}
+
+	// 1. If it's a dynamic model selection (no image uploaded, but has model/lang parameter)
+	if !hasImage {
+		model := r.URL.Query().Get("model")
+		if model == "" {
+			model = r.URL.Query().Get("lang")
+		}
+		if model == "" && strings.Contains(contentType, "application/json") {
+			var body struct {
+				Model string `json:"model"`
+				Lang  string `json:"lang"`
+			}
+			if err := json.Unmarshal(bodyBytes, &body); err == nil {
+				model = body.Model
+				if model == "" {
+					model = body.Lang
+				}
+			}
+		}
+
+		if model == "" {
+			s.sendHelp(w, "OCR_SERVER_API.md", "Image or model parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		// Verify the model exists in the profiles
+		if !s.manager.HasLanguage(model) {
+			s.sendHelp(w, "OCR_SERVER_API.md", fmt.Sprintf("Model/Language %q not available in config", model), http.StatusNotFound)
+			return
+		}
+
+		s.defaultModel = model
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":        "success",
+			"default_model": s.defaultModel,
+		})
+		return
+	}
+
+	// 2. Perform OCR
+	langID := r.URL.Query().Get("model")
+	if langID == "" {
+		langID = r.URL.Query().Get("lang")
+	}
+	if langID == "" && strings.Contains(contentType, "application/json") {
 		var body struct {
 			Model string `json:"model"`
 			Lang  string `json:"lang"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
-			model = body.Model
-			if model == "" {
-				model = body.Lang
+		if err := json.Unmarshal(bodyBytes, &body); err == nil {
+			langID = body.Model
+			if langID == "" {
+				langID = body.Lang
 			}
 		}
 	}
 
-	if model == "" {
-		s.jsonError(w, "Model parameter is required", http.StatusBadRequest)
+	// If a model is explicitly requested, also update the active default model of the server
+	if langID != "" {
+		if !s.manager.HasLanguage(langID) {
+			s.sendHelp(w, "OCR_SERVER_API.md", fmt.Sprintf("Language %q not available", langID), http.StatusNotFound)
+			return
+		}
+		s.defaultModel = langID
+	} else {
+		langID = s.defaultModel
+	}
+
+	var img image.Image
+	var imgErr error
+	file, _, formErr := r.FormFile("image")
+	if formErr == nil {
+		defer file.Close()
+		img, _, imgErr = image.Decode(file)
+	} else {
+		img, _, imgErr = image.Decode(r.Body)
+	}
+
+	if imgErr != nil {
+		s.sendHelp(w, "OCR_SERVER_API.md", fmt.Sprintf("Failed to decode image: %v", imgErr), http.StatusBadRequest)
 		return
 	}
 
-	// Verify the model exists in the profiles
-	if !s.manager.HasLanguage(model) {
-		s.jsonError(w, fmt.Sprintf("Model/Language %q not available in config", model), http.StatusNotFound)
+	client, err := s.manager.GetClient(langID)
+	if err != nil {
+		s.sendHelp(w, "OCR_SERVER_API.md", fmt.Sprintf("Language %q not available: %v", langID, err), http.StatusNotFound)
 		return
 	}
 
-	s.defaultModel = model
+	bounds := img.Bounds()
+	wImg, hImg := bounds.Dx(), bounds.Dy()
+	frameData := make([]byte, wImg*hImg*3)
+	for y := 0; y < hImg; y++ {
+		for x := 0; x < wImg; x++ {
+			rCol, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+			idx := (y*wImg + x) * 3
+			frameData[idx] = uint8(rCol >> 8)
+			frameData[idx+1] = uint8(g >> 8)
+			frameData[idx+2] = uint8(b >> 8)
+		}
+	}
+
+	results, err := client.ReadFullFrame(frameData, wImg, hImg)
+	if err != nil {
+		s.sendHelp(w, "OCR_SERVER_API.md", fmt.Sprintf("OCR processing failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":        "success",
-		"default_model": s.defaultModel,
-	})
+	json.NewEncoder(w).Encode(recognizeResponse{Results: results})
 }
 
 type translateRequest struct {
@@ -231,21 +337,36 @@ type translateResponse struct {
 }
 
 func (s *Server) handleTranslate(w http.ResponseWriter, r *http.Request) {
+	isHelp, bodyBytes := checkHelp(r)
+	if isHelp {
+		s.sendHelp(w, "TRANSLATE_SERVER_API.md", "", http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendHelp(w, "TRANSLATE_SERVER_API.md", "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if s.translateManager == nil {
-		s.jsonTranslateError(w, "Translation engine not initialized", http.StatusServiceUnavailable)
+		s.sendHelp(w, "TRANSLATE_SERVER_API.md", "Translation engine not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	var req translateRequest
 
 	if r.Method == http.MethodPost {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-			// fallback to parameters if body decoding fails
+		if len(bodyBytes) == 0 {
+			var err error
+			bodyBytes, err = io.ReadAll(r.Body)
+			if err == nil {
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+		}
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, &req); err != nil {
+				// fallback to parameters if body decoding fails
+			}
 		}
 	}
 
@@ -272,7 +393,7 @@ func (s *Server) handleTranslate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Text == "" {
-		s.jsonTranslateError(w, "Parameter 'text' is required", http.StatusBadRequest)
+		s.sendHelp(w, "TRANSLATE_SERVER_API.md", "Parameter 'text' is required", http.StatusBadRequest)
 		return
 	}
 	if req.Source == "" {
@@ -284,18 +405,12 @@ func (s *Server) handleTranslate(w http.ResponseWriter, r *http.Request) {
 
 	translated, err := s.translateManager.Translate(r.Context(), req.Text, req.Source, req.Target)
 	if err != nil {
-		s.jsonTranslateError(w, fmt.Sprintf("Translation failed: %v", err), http.StatusInternalServerError)
+		s.sendHelp(w, "TRANSLATE_SERVER_API.md", fmt.Sprintf("Translation failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(translateResponse{Translated: translated})
-}
-
-func (s *Server) jsonTranslateError(w http.ResponseWriter, msg string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(translateResponse{Error: msg})
 }
 
 type summarizeRequest struct {
@@ -310,21 +425,36 @@ type summarizeResponse struct {
 }
 
 func (s *Server) handleSummarize(w http.ResponseWriter, r *http.Request) {
+	isHelp, bodyBytes := checkHelp(r)
+	if isHelp {
+		s.sendHelp(w, "SUMMARIZE_SERVER_API.md", "", http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendHelp(w, "SUMMARIZE_SERVER_API.md", "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if s.summarizeManager == nil {
-		s.jsonSummarizeError(w, "Summarization engine not initialized", http.StatusServiceUnavailable)
+		s.sendHelp(w, "SUMMARIZE_SERVER_API.md", "Summarization engine not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	var req summarizeRequest
 
 	if r.Method == http.MethodPost {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-			// fallback to parameters if body decoding fails
+		if len(bodyBytes) == 0 {
+			var err error
+			bodyBytes, err = io.ReadAll(r.Body)
+			if err == nil {
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+		}
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, &req); err != nil {
+				// fallback to parameters if body decoding fails
+			}
 		}
 	}
 
@@ -351,22 +481,16 @@ func (s *Server) handleSummarize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Text == "" {
-		s.jsonSummarizeError(w, "Parameter 'text' is required", http.StatusBadRequest)
+		s.sendHelp(w, "SUMMARIZE_SERVER_API.md", "Parameter 'text' is required", http.StatusBadRequest)
 		return
 	}
 
 	summary, err := s.summarizeManager.Summarize(req.Text, req.Count, req.Language)
 	if err != nil {
-		s.jsonSummarizeError(w, fmt.Sprintf("Summarization failed: %v", err), http.StatusInternalServerError)
+		s.sendHelp(w, "SUMMARIZE_SERVER_API.md", fmt.Sprintf("Summarization failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(summarizeResponse{Summary: summary})
-}
-
-func (s *Server) jsonSummarizeError(w http.ResponseWriter, msg string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(summarizeResponse{Error: msg})
 }

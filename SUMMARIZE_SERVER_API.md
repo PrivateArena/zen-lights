@@ -93,3 +93,23 @@ curl -s -X POST http://localhost:8080/summarize \
   "error": "Parameter 'text' is required"
 }
 ```
+
+---
+
+## ❓ Interactive API Help Guide
+The server supports built-in interactive help guides directly from the terminal!
+
+### 1. Manual Help Request
+Pass `help=true` as a query parameter or `{"help": true}` in a JSON request body to retrieve this complete markdown guide formatted beautifully in your terminal:
+```bash
+curl -s "http://localhost:8080/summarize?help=true"
+```
+
+### 2. Error Redirection
+If any request has invalid parameters or wrong usage (causing a non-200 HTTP status code), the server automatically includes the full contents of this API guide under the `"help"` key of the JSON error response:
+```json
+{
+  "error": "Parameter 'text' is required",
+  "help": "# Zenlights Summarize Server HTTP API Documentation..."
+}
+```

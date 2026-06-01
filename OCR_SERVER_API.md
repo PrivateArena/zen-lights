@@ -57,14 +57,20 @@ Checks the status of the server.
 
 ---
 
-### 2. Get Default Model
-Retrieves the currently configured default OCR model.
+### 2. Unified OCR & Model Config
+Unifies OCR recognition, retrieving active model configuration, and setting/updating the default model dynamically.
 
-* **Endpoint:** `GET /default-model`
+* **Endpoint:** `/ocr`
+* **Supported Methods:** `GET`, `POST`, `PUT`
+
+#### A. Get Active OCR Model Configuration
+Retrieve the currently configured default OCR model.
+
+* **Method:** `GET`
 * **Response Format:** `application/json`
 * **Example:**
   ```bash
-  curl -s http://localhost:8765/default-model
+  curl -s http://localhost:8765/ocr
   ```
 * **Sample Response:**
   ```json
@@ -73,20 +79,18 @@ Retrieves the currently configured default OCR model.
   }
   ```
 
----
-
-### 3. Set Default Model (Dynamic Selection)
+#### B. Dynamic Model Selection (Change Active Model)
 Dynamically changes the default model for all subsequent API requests. The model must exist in the server config profiles.
 
-* **Endpoint:** `POST /default-model` (also accepts `PUT`)
+* **Method:** `POST` or `PUT` (without image body)
 * **Request Options:** Specify `model` or `lang` via query parameter or JSON body.
 * **Example (Query Parameter):**
   ```bash
-  curl -s -X POST "http://localhost:8765/default-model?model=ko"
+  curl -s -X POST "http://localhost:8765/ocr?model=ko"
   ```
 * **Example (JSON Body):**
   ```bash
-  curl -s -X POST http://localhost:8765/default-model \
+  curl -s -X POST http://localhost:8765/ocr \
     -H "Content-Type: application/json" \
     -d '{"model": "ja"}'
   ```
@@ -97,36 +101,23 @@ Dynamically changes the default model for all subsequent API requests. The model
     "default_model": "ja"
   }
   ```
-* **Sample Error Response (Invalid Model):**
-  ```json
-  {
-    "error": "Model/Language \"fr\" not available in config"
-  }
-  ```
 
----
+#### C. Perform OCR Recognition
+Uploads an image file to run layout segmentation and text recognition. If a `model` or `lang` parameter is specified, it also updates the server's default/active model.
 
-### 4. Recognize (Run OCR)
-Uploads an image file to run layout segmentation and text recognition. 
-
-* **Endpoint:** `POST /recognize`
+* **Method:** `POST`
 * **Request Options:**
   * `image` (Multipart Form File, required): The image to process. Alternatively, you can send the raw image bytes as the request body.
-  * `model` or `lang` (Query Parameter, optional): Explicitly selects which model to use for this specific request. If omitted, falls back to the server's configured `default_model`.
-* **Example (Using Default Model):**
+  * `model` or `lang` (Query Parameter, optional): Explicitly selects which model to use for this specific request, and sets it as the active server default. If omitted, falls back to the server's currently active model.
+* **Example (Using Active Model):**
   ```bash
-  curl -s -X POST http://localhost:8765/recognize \
+  curl -s -X POST http://localhost:8765/ocr \
     -F "image=@/path/to/screenshot.png"
   ```
-* **Example (Explicitly Requesting Korean Model):**
+* **Example (Explicitly Requesting Korean Model & Updating Default):**
   ```bash
-  curl -s -X POST "http://localhost:8765/recognize?model=ko" \
+  curl -s -X POST "http://localhost:8765/ocr?model=ko" \
     -F "image=@/path/to/screenshot.png"
-  ```
-* **Example (Using Raw Image Body):**
-  ```bash
-  curl -s -X POST "http://localhost:8765/recognize?model=en" \
-    --data-binary "@/path/to/screenshot.png"
   ```
 * **Sample Success Response:**
   ```json
@@ -139,14 +130,6 @@ Uploads an image file to run layout segmentation and text recognition.
           "Min": {"X": 45, "Y": 12},
           "Max": {"X": 110, "Y": 34}
         }
-      },
-      {
-        "Text": "12 : 5",
-        "Confidence": 0.992,
-        "Bounds": {
-          "Min": {"X": 120, "Y": 10},
-          "Max": {"X": 210, "Y": 36}
-        }
       }
     ]
   }
@@ -154,7 +137,7 @@ Uploads an image file to run layout segmentation and text recognition.
 
 ---
 
-### 5. Translate (Dual-Engine Translation)
+### 3. Translate (Dual-Engine Translation)
 Translates text between languages using either online (Google Translate) or local offline models (Helsinki OPUS-MT).
 
 * **Endpoint:** `POST /translate` (also supports `GET`)
@@ -185,3 +168,22 @@ Translates text between languages using either online (Google Translate) or loca
   }
   ```
 
+---
+
+## ❓ Interactive API Help Guide
+The server supports built-in interactive help guides directly from the terminal!
+
+### 1. Manual Help Request
+Pass `help=true` as a query parameter or `{"help": true}` in a JSON request body to retrieve this complete markdown guide formatted beautifully in your terminal:
+```bash
+curl -s "http://localhost:8765/ocr?help=true"
+```
+
+### 2. Error Redirection
+If any request has invalid parameters or wrong usage (causing a non-200 HTTP status code), the server automatically includes the full contents of this API guide under the `"help"` key of the JSON error response:
+```json
+{
+  "error": "Failed to decode image: ...",
+  "help": "# Zenlights OCR Server HTTP API Documentation..."
+}
+```

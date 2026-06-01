@@ -26,13 +26,13 @@ func TestDefaultModelEndpoints(t *testing.T) {
 	// Create server
 	srv := New(":0", manager, "ch", transManager, nil, nil)
 
-	// Create test HTTP recorder for GET /default-model
-	req, err := http.NewRequest("GET", "/default-model", nil)
+	// Create test HTTP recorder for GET /ocr
+	req, err := http.NewRequest("GET", "/ocr", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rr := httptest.NewRecorder()
-	srv.handleDefaultModel(rr, req)
+	srv.handleOCR(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", rr.Code)
@@ -46,16 +46,16 @@ func TestDefaultModelEndpoints(t *testing.T) {
 		t.Errorf("expected default model 'ch', got '%s'", getResp["default_model"])
 	}
 
-	// Test POST /default-model?model=en
-	req, err = http.NewRequest("POST", "/default-model?model=en", nil)
+	// Test POST /ocr?model=en
+	req, err = http.NewRequest("POST", "/ocr?model=en", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rr = httptest.NewRecorder()
-	srv.handleDefaultModel(rr, req)
+	srv.handleOCR(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
+		t.Errorf("expected status 200, got %d. Body: %s", rr.Code, rr.Body.String())
 	}
 
 	var postResp map[string]string
@@ -70,12 +70,12 @@ func TestDefaultModelEndpoints(t *testing.T) {
 	}
 
 	// Test POST with invalid/non-existent model
-	req, err = http.NewRequest("POST", "/default-model?model=fr", nil)
+	req, err = http.NewRequest("POST", "/ocr?model=fr", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rr = httptest.NewRecorder()
-	srv.handleDefaultModel(rr, req)
+	srv.handleOCR(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected status 404 for missing model, got %d", rr.Code)

@@ -162,3 +162,23 @@ Downloads or displays generated PNG files directly from the server.
   ```bash
   curl -o output.png http://localhost:8080/paint/outputs/zp_1715456729000_42.png
   ```
+
+---
+
+## ❓ Interactive API Help Guide
+The server supports built-in interactive help guides directly from the terminal!
+
+### 1. Manual Help Request
+Pass `help=true` as a query parameter or `{"help": true}` in a JSON request body to retrieve this complete markdown guide formatted beautifully in your terminal:
+```bash
+curl -s "http://localhost:8080/paint/generate?help=true"
+```
+
+### 2. Error Redirection
+If any request has invalid parameters or wrong usage (causing a non-200 HTTP status code), the server automatically includes the full contents of this API guide under the `"help"` key of the JSON error response:
+```json
+{
+  "error": "invalid JSON body",
+  "help": "# Zenlights Paint Server HTTP API Documentation..."
+}
+```
