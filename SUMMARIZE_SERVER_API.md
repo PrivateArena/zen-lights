@@ -48,7 +48,7 @@ Verifies general server health.
 * **Response:** `200 OK`
 * **Example:**
   ```bash
-  curl -i http://localhost:8080/status
+  curl -i http://localhost:8765/status
   ```
 
 ---
@@ -64,12 +64,12 @@ Performs summarization on the provided text using the configured algorithm.
 
 #### GET Request Example (Query Parameters)
 ```bash
-curl -s "http://localhost:8080/summarize?text=Gemma-3+is+a+lightweight+open-source+model.+It+is+highly+optimized+for+local+inference.+ONNX+runtime+helps+to+execute+it+efficiently+on+CPU.&count=2&lang=en"
+curl -s "http://localhost:8765/summarize?text=Gemma-3+is+a+lightweight+open-source+model.+It+is+highly+optimized+for+local+inference.+ONNX+runtime+helps+to+execute+it+efficiently+on+CPU.&count=2&lang=en"
 ```
 
 #### POST Request Example (JSON Body)
 ```bash
-curl -s -X POST http://localhost:8080/summarize \
+curl -s -X POST http://localhost:8765/summarize \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Gemma-3 is a state-of-the-art open large language model developed by Google. It is designed to be highly efficient, especially for lightweight inference tasks on local consumer-grade hardware. ONNX runtime enables high-performance inference across various platforms.",
@@ -102,7 +102,7 @@ The server supports built-in interactive help guides directly from the terminal!
 ### 1. Manual Help Request
 Pass `help=true` as a query parameter or `{"help": true}` in a JSON request body to retrieve this complete markdown guide formatted beautifully in your terminal:
 ```bash
-curl -s "http://localhost:8080/summarize?help=true"
+curl -s "http://localhost:8765/summarize?help=true"
 ```
 
 ### 2. Error Redirection

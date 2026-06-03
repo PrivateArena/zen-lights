@@ -62,6 +62,10 @@ type TextResult struct {
 	Text       string
 	Confidence float32
 	Bounds     image.Rectangle
+	X          int `json:"x"`
+	Y          int `json:"y"`
+	W          int `json:"w"`
+	H          int `json:"h"`
 }
 
 // Client holds long-lived ONNX Runtime recognition and detection sessions.
@@ -229,6 +233,10 @@ func (c *Client) ReadFullFrame(frameData []byte, frameW, frameH int) ([]TextResu
 			Text:       text,
 			Confidence: conf,
 			Bounds:     box,
+			X:          box.Min.X,
+			Y:          box.Min.Y,
+			W:          box.Dx(),
+			H:          box.Dy(),
 		})
 	}
 

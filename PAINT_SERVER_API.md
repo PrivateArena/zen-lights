@@ -35,7 +35,7 @@ The paint engine properties are configured under the `"paint"` block in `config.
 
 ## 📡 API Endpoints
 
-All endpoints are hosted on the unified server port (default: `8080`) and are prefixed with `/paint`.
+All endpoints are hosted on the unified server port (default: `8765`) and are prefixed with `/paint`.
 
 ### 1. Engine Status
 Retrieves current engine status, loaded model name, and backend execution metadata.
@@ -52,7 +52,7 @@ Retrieves current engine status, loaded model name, and backend execution metada
   ```
 * **Example:**
   ```bash
-  curl -i http://localhost:8080/paint/status
+  curl -i http://localhost:8765/paint/status
   ```
 
 ---
@@ -74,7 +74,7 @@ Lists all valid model directories under the configured `models_dir` containing a
   ```
 * **Example:**
   ```bash
-  curl -i http://localhost:8080/paint/models
+  curl -i http://localhost:8765/paint/models
   ```
 
 ---
@@ -100,7 +100,7 @@ Triggers dynamic, on-demand loading of a different model from the available list
   ```
 * **Example:**
   ```bash
-  curl -s -X POST http://localhost:8080/paint/load \
+  curl -s -X POST http://localhost:8765/paint/load \
     -H "Content-Type: application/json" \
     -d '{"model": "bonsai"}'
   ```
@@ -140,7 +140,7 @@ Generates a new PNG image from a text prompt.
   ```
 * **Example:**
   ```bash
-  curl -s -X POST http://localhost:8080/paint/generate \
+  curl -s -X POST http://localhost:8765/paint/generate \
     -H "Content-Type: application/json" \
     -d '{
       "prompt": "A vibrant digital drawing of a flying cat",
@@ -160,7 +160,7 @@ Downloads or displays generated PNG files directly from the server.
 * **Example:**
   To retrieve an image returned in the generation result path (e.g., `zp_1715456729000_42.png`):
   ```bash
-  curl -o output.png http://localhost:8080/paint/outputs/zp_1715456729000_42.png
+  curl -o output.png http://localhost:8765/paint/outputs/zp_1715456729000_42.png
   ```
 
 ---
@@ -171,7 +171,7 @@ The server supports built-in interactive help guides directly from the terminal!
 ### 1. Manual Help Request
 Pass `help=true` as a query parameter or `{"help": true}` in a JSON request body to retrieve this complete markdown guide formatted beautifully in your terminal:
 ```bash
-curl -s "http://localhost:8080/paint/generate?help=true"
+curl -s "http://localhost:8765/paint/generate?help=true"
 ```
 
 ### 2. Error Redirection
