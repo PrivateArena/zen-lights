@@ -7,64 +7,58 @@ import (
 
 // TokenizeSentences splits text into individual sentences.
 func TokenizeSentences(text string) []string {
-	// First split by explicit newlines to isolate paragraphs
-	lines := strings.Split(text, "\n")
+	// Replace all newlines with spaces to handle wrapped text
+	text = strings.ReplaceAll(text, "\r\n", " ")
+	text = strings.ReplaceAll(text, "\n", " ")
+
 	var sents []string
+	var current strings.Builder
+	runes := []rune(text)
+	n := len(runes)
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	for i := 0; i < n; i++ {
+		r := runes[i]
+		current.WriteRune(r)
 
-		var current strings.Builder
-		runes := []rune(line)
-		n := len(runes)
-
-		for i := 0; i < n; i++ {
-			r := runes[i]
-			current.WriteRune(r)
-
-			isDelim := false
-			switch r {
-			case '?', '!', '。', '？', '！':
-				isDelim = true
-			case '.':
-				isDelim = true
-				if i+1 < n {
-					next := runes[i+1]
-					// If followed by digit, not sentence end (decimal number)
-					if unicode.IsDigit(next) {
-						isDelim = false
-					}
-				}
-				// Check for common abbreviations before this dot
-				currStr := current.String()
-				for _, abbr := range []string{"Mr.", "Mrs.", "Dr.", "Prof.", "Sr.", "Jr.", "vs.", "e.g.", "i.e.", "a.m.", "p.m."} {
-					if strings.HasSuffix(strings.ToLower(currStr), " "+strings.ToLower(abbr)) || strings.ToLower(currStr) == strings.ToLower(abbr) {
-						isDelim = false
-						break
-					}
+		isDelim := false
+		switch r {
+		case '?', '!', '。', '？', '！':
+			isDelim = true
+		case '.':
+			isDelim = true
+			if i+1 < n {
+				next := runes[i+1]
+				// If followed by digit, not sentence end (decimal number)
+				if unicode.IsDigit(next) {
+					isDelim = false
 				}
 			}
-
-			if isDelim {
-				// CJK delimiters do not need spaces after them to split sentences
-				isCJKDelim := r == '。' || r == '？' || r == '！'
-				if isCJKDelim || i+1 == n || unicode.IsSpace(runes[i+1]) {
-					trimmed := strings.TrimSpace(current.String())
-					if trimmed != "" {
-						sents = append(sents, trimmed)
-					}
-					current.Reset()
+			// Check for common abbreviations before this dot
+			currStr := current.String()
+			for _, abbr := range []string{"Mr.", "Mrs.", "Dr.", "Prof.", "Sr.", "Jr.", "vs.", "e.g.", "i.e.", "a.m.", "p.m."} {
+				if strings.HasSuffix(strings.ToLower(currStr), " "+strings.ToLower(abbr)) || strings.ToLower(currStr) == strings.ToLower(abbr) {
+					isDelim = false
+					break
 				}
 			}
 		}
 
-		trimmed := strings.TrimSpace(current.String())
-		if trimmed != "" {
-			sents = append(sents, trimmed)
+		if isDelim {
+			// CJK delimiters do not need spaces after them to split sentences
+			isCJKDelim := r == '。' || r == '？' || r == '！'
+			if isCJKDelim || i+1 == n || unicode.IsSpace(runes[i+1]) {
+				trimmed := strings.TrimSpace(current.String())
+				if trimmed != "" {
+					sents = append(sents, trimmed)
+				}
+				current.Reset()
+			}
 		}
+	}
+
+	trimmed := strings.TrimSpace(current.String())
+	if trimmed != "" {
+		sents = append(sents, trimmed)
 	}
 
 	return sents

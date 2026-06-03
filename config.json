@@ -45,7 +45,7 @@
     }
   ],
   "summarize": {
-    "algorithm": "llm",
+    "algorithm": "textrank",
     "shared_lib_path": "/media/jang/home/Deve/zen-tts/piper/libonnxruntime.so.1.24.2",
     "model_path": "/media/jang/home/Deve/zen-news/models/model.onnx",
     "model_dir": "/media/jang/home/Deve/zen-news/models/",
