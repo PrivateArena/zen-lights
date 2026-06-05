@@ -29,6 +29,8 @@ func Init(libPath string) error {
 				"./piper/libonnxruntime.so.1.24.2",
 				"../piper/libonnxruntime.so.1.24.2",
 				// zen-tts ships the same ORT lib — reuse it
+				"../zen-tts/piper/libonnxruntime.so.1.24.2",
+				"../zen-stt/piper/libonnxruntime.so.1.24.2",
 				"../../zen-tts/piper/libonnxruntime.so.1.24.2",
 				"../../zen-stt/piper/libonnxruntime.so.1.24.2",
 				"./piper/libonnxruntime.so",

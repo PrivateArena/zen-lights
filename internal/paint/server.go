@@ -219,6 +219,9 @@ func (mgr *Manager) HandleGenerate(w http.ResponseWriter, r *http.Request) {
 	if req.Seed == 0 {
 		req.Seed = time.Now().UnixNano()
 	}
+	if req.CFGScale <= 0 {
+		req.CFGScale = 1.0
+	}
 
 	eng, _ := mgr.GetActive()
 	if eng == nil {

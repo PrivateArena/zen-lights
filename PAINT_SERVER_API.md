@@ -19,7 +19,7 @@ The paint engine properties are configured under the `"paint"` block in `config.
     "num_threads": 0,
     "output_dir": "/tmp/zen-paint",
     "max_concurrency": 1,
-    "models_dir": "/media/jang/home/Deve/zen-paint/models"
+    "models_dir": "models_paint"
   }
 ```
 

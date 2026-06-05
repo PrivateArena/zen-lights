@@ -39,13 +39,17 @@ import (
 
 // Engine is the SDXL/SDXL-Turbo/LCM backend.
 type Engine struct {
-	textEncoder *ort.DynamicAdvancedSession
-	unet        *ort.DynamicAdvancedSession
-	vaeDecoder  *ort.DynamicAdvancedSession
-	tokenizer   *tokenizer.ClipTokenizer
-	opts        engine.Options
-	modelDir    string
-	info        string
+	textEncoder        *ort.DynamicAdvancedSession
+	unet               *ort.DynamicAdvancedSession
+	vaeDecoder         *ort.DynamicAdvancedSession
+	tokenizer          *tokenizer.ClipTokenizer
+	opts               engine.Options
+	modelDir           string
+	info               string
+	unetInputs         []string
+	textEncoderOutputs []string
+	timestepIsFloat    bool
+	alphasCumprod      [1000]float32
 }
 
 // Initialize loads ONNX sessions from modelDir.
@@ -109,33 +113,59 @@ func (e *Engine) Initialize(modelDir string, opts engine.Options) error {
 		}
 	}
 
-	load := func(name string) (*ort.DynamicAdvancedSession, error) {
+	load := func(name string) (*ort.DynamicAdvancedSession, []string, []string, error) {
 		path := filepath.Join(modelDir, name)
 		if _, err := os.Stat(path); err != nil {
-			return nil, fmt.Errorf("model file not found: %s", path)
+			// Try subdirectory fallback (e.g. text_encoder.onnx -> text_encoder/model.onnx)
+			base := strings.TrimSuffix(name, ".onnx")
+			fallbackPath := filepath.Join(modelDir, base, "model.onnx")
+			if _, errSub := os.Stat(fallbackPath); errSub == nil {
+				path = fallbackPath
+			} else {
+				// Try base/name (e.g. text_encoder/text_encoder.onnx)
+				fallbackPath2 := filepath.Join(modelDir, base, name)
+				if _, errSub2 := os.Stat(fallbackPath2); errSub2 == nil {
+					path = fallbackPath2
+				} else {
+					return nil, nil, nil, fmt.Errorf("model file not found: %s", path)
+				}
+			}
 		}
 		ins, outs, err := ort.GetInputOutputInfo(path)
 		if err != nil {
-			return nil, fmt.Errorf("get io info %s: %w", name, err)
+			return nil, nil, nil, fmt.Errorf("get io info %s: %w", name, err)
 		}
 		inNames := make([]string, len(ins))
 		for i, v := range ins {
 			inNames[i] = v.Name
+			if name == "unet.onnx" && v.Name == "timestep" {
+				if strings.Contains(strings.ToLower(v.DataType.String()), "float") {
+					e.timestepIsFloat = true
+				}
+			}
+			fmt.Printf("[%s input %d] Name: %s, DataType: %s, Dimensions: %v\n", name, i, v.Name, v.DataType.String(), v.Dimensions)
 		}
 		outNames := make([]string, len(outs))
 		for i, v := range outs {
 			outNames[i] = v.Name
+			fmt.Printf("[%s output %d] Name: %s, DataType: %s, Dimensions: %v\n", name, i, v.Name, v.DataType.String(), v.Dimensions)
 		}
-		return ort.NewDynamicAdvancedSession(path, inNames, outNames, sessOpts)
+		sess, err := ort.NewDynamicAdvancedSession(path, inNames, outNames, sessOpts)
+		return sess, inNames, outNames, err
 	}
 
-	if e.textEncoder, err = load("text_encoder.onnx"); err != nil {
+	var textEncoderOutputs, unetInputs []string
+	if e.textEncoder, _, textEncoderOutputs, err = load("text_encoder.onnx"); err != nil {
 		return err
 	}
-	if e.unet, err = load("unet.onnx"); err != nil {
+	e.textEncoderOutputs = textEncoderOutputs
+
+	if e.unet, unetInputs, _, err = load("unet.onnx"); err != nil {
 		return err
 	}
-	if e.vaeDecoder, err = load("vae_decoder.onnx"); err != nil {
+	e.unetInputs = unetInputs
+
+	if e.vaeDecoder, _, _, err = load("vae_decoder.onnx"); err != nil {
 		return err
 	}
 
@@ -143,6 +173,8 @@ func (e *Engine) Initialize(modelDir string, opts engine.Options) error {
 	if err != nil {
 		return fmt.Errorf("tokenizer: %w", err)
 	}
+
+	e.initScheduler()
 
 	e.info = fmt.Sprintf("SDXL pipeline | dir=%s threads=%d provider=%s",
 		modelDir, threads, opts.ExecutionProvider)
@@ -174,11 +206,11 @@ func (e *Engine) Generate(req engine.GenerateRequest) (engine.GenerateResult, er
 	timesteps := lcmTimesteps(req.Steps)
 
 	// 4. Denoising loop
-	for _, t := range timesteps {
-		latents, err = e.denoisingStep(latents, condEmbeds, uncondEmbeds, pooled, uncondPooled,
-			t, req.CFGScale, req.Width, req.Height)
+	for stepIdx := range timesteps {
+		latents, err = e.denoisingStep(rng, latents, condEmbeds, uncondEmbeds, pooled, uncondPooled,
+			stepIdx, timesteps, req.CFGScale, req.Width, req.Height)
 		if err != nil {
-			return engine.GenerateResult{}, fmt.Errorf("denoising step t=%d: %w", t, err)
+			return engine.GenerateResult{}, fmt.Errorf("denoising step idx=%d: %w", stepIdx, err)
 		}
 	}
 
@@ -227,6 +259,11 @@ func (e *Engine) Close() error {
 // Uses a placeholder identity tokenizer — swap with BPE for production.
 func (e *Engine) encodeText(prompt string) ([]float32, []float32, error) {
 	tokens := e.tokenizer.Encode(prompt, 77)
+	if len(tokens) >= 15 {
+		fmt.Printf("[paint] encodeText prompt=%q tokens=%v\n", prompt, tokens[:15])
+	} else {
+		fmt.Printf("[paint] encodeText prompt=%q tokens=%v\n", prompt, tokens)
+	}
 	tokenTensor, err := ort.NewTensor(ort.NewShape(1, 77), tokens)
 	if err != nil {
 		return nil, nil, err
@@ -234,30 +271,39 @@ func (e *Engine) encodeText(prompt string) ([]float32, []float32, error) {
 	defer tokenTensor.Destroy()
 
 	outSeq := make([]float32, 1*77*768)
-	outPool := make([]float32, 1*768)
 	seqTensor, _ := ort.NewTensor(ort.NewShape(1, 77, 768), outSeq)
-	poolTensor, _ := ort.NewTensor(ort.NewShape(1, 768), outPool)
 	defer seqTensor.Destroy()
-	defer poolTensor.Destroy()
 
-	err = e.textEncoder.Run([]ort.Value{tokenTensor}, []ort.Value{seqTensor, poolTensor})
+	var pool []float32
+	if len(e.textEncoderOutputs) >= 2 {
+		outPool := make([]float32, 1*768)
+		poolTensor, _ := ort.NewTensor(ort.NewShape(1, 768), outPool)
+		defer poolTensor.Destroy()
+		err = e.textEncoder.Run([]ort.Value{tokenTensor}, []ort.Value{seqTensor, poolTensor})
+		if err == nil {
+			pool = make([]float32, len(outPool))
+			copy(pool, poolTensor.GetData())
+		}
+	} else {
+		err = e.textEncoder.Run([]ort.Value{tokenTensor}, []ort.Value{seqTensor})
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 
 	seq := make([]float32, len(outSeq))
 	copy(seq, seqTensor.GetData())
-	pool := make([]float32, len(outPool))
-	copy(pool, poolTensor.GetData())
 	return seq, pool, nil
 }
 
 // denoisingStep runs one UNet forward pass and returns updated latents.
 func (e *Engine) denoisingStep(
+	rng *rand.Rand,
 	latents, condEmb, uncondEmb, condPool, uncondPool []float32,
-	t int, cfg float32,
+	stepIdx int, timesteps []int, cfg float32,
 	width, height int,
 ) ([]float32, error) {
+	t := timesteps[stepIdx]
 	latentH := height / 8
 	latentW := width / 8
 	latentSize := 1 * 4 * latentH * latentW
@@ -269,22 +315,45 @@ func (e *Engine) denoisingStep(
 
 	batchEmbeds := append(uncondEmb, condEmb...)
 	batchPool := append(uncondPool, condPool...)
-	timestepData := []int64{int64(t), int64(t)}
-
 	latTensor, _ := ort.NewTensor(ort.NewShape(2, 4, int64(latentH), int64(latentW)), batchLatents)
-	tTensor, _ := ort.NewTensor(ort.NewShape(2), timestepData)
 	embTensor, _ := ort.NewTensor(ort.NewShape(2, 77, 768), batchEmbeds)
-	poolTensor, _ := ort.NewTensor(ort.NewShape(2, 768), batchPool)
 	defer latTensor.Destroy()
-	defer tTensor.Destroy()
 	defer embTensor.Destroy()
-	defer poolTensor.Destroy()
+
+	var tTensor ort.Value
+	if e.timestepIsFloat {
+		tTensor, _ = ort.NewTensor(ort.NewShape(2), []float32{float32(t), float32(t)})
+	} else {
+		tTensor, _ = ort.NewTensor(ort.NewShape(2), []int64{int64(t), int64(t)})
+	}
+	defer tTensor.Destroy()
+
+	var inputs []ort.Value
+	if len(e.unetInputs) == 3 {
+		inputs = []ort.Value{latTensor, tTensor, embTensor}
+	} else if len(e.unetInputs) == 4 {
+		fourthInputName := e.unetInputs[3]
+		if fourthInputName == "timestep_cond" {
+			// LCM style: expects [batch, 256]
+			timestepCondData := make([]float32, 2*256)
+			timestepCondTensor, _ := ort.NewTensor(ort.NewShape(2, 256), timestepCondData)
+			defer timestepCondTensor.Destroy()
+			inputs = []ort.Value{latTensor, tTensor, embTensor, timestepCondTensor}
+		} else {
+			// SDXL style: expects [batch, 768] (poolTensor)
+			poolTensor, _ := ort.NewTensor(ort.NewShape(2, 768), batchPool)
+			defer poolTensor.Destroy()
+			inputs = []ort.Value{latTensor, tTensor, embTensor, poolTensor}
+		}
+	} else {
+		inputs = []ort.Value{latTensor, tTensor, embTensor}
+	}
 
 	outNoise := make([]float32, 2*latentSize)
 	noiseTensor, _ := ort.NewTensor(ort.NewShape(2, 4, int64(latentH), int64(latentW)), outNoise)
 	defer noiseTensor.Destroy()
 
-	if err := e.unet.Run([]ort.Value{latTensor, tTensor, embTensor, poolTensor}, []ort.Value{noiseTensor}); err != nil {
+	if err := e.unet.Run(inputs, []ort.Value{noiseTensor}); err != nil {
 		return nil, err
 	}
 
@@ -298,13 +367,52 @@ func (e *Engine) denoisingStep(
 		guided[i] = uncondNoise[i] + cfg*(condNoise[i]-uncondNoise[i])
 	}
 
-	// LCM scheduler update: x_{t-1} = x_t - sigma * noise
-	sigma := lcmSigma(t)
-	updated := make([]float32, latentSize)
-	for i := range updated {
-		updated[i] = latents[i] - float32(sigma)*guided[i]
+	// LCM scheduler update step
+	alphaProdT := e.alphasCumprod[t]
+	betaProdT := 1.0 - alphaProdT
+	sqrtAlphaProdT := float32(math.Sqrt(float64(alphaProdT)))
+	sqrtBetaProdT := float32(math.Sqrt(float64(betaProdT)))
+
+	// 1. Estimate x0 (predOriginalSample)
+	predX0 := make([]float32, latentSize)
+	for i := 0; i < latentSize; i++ {
+		predX0[i] = (latents[i] - sqrtBetaProdT*guided[i]) / sqrtAlphaProdT
 	}
-	return updated, nil
+
+	// 2. Get boundary condition scalings c_skip and c_out
+	scaledTimestep := float64(t) * 10.0
+	denom := scaledTimestep*scaledTimestep + 0.25
+	cSkip := float32(0.25 / denom)
+	cOut := float32(scaledTimestep / math.Sqrt(denom))
+
+	// 3. Compute denoised latent
+	denoised := make([]float32, latentSize)
+	for i := 0; i < latentSize; i++ {
+		denoised[i] = cSkip*latents[i] + cOut*predX0[i]
+	}
+
+	// 4. If not last step, step to tPrev
+	if stepIdx < len(timesteps)-1 {
+		tPrev := timesteps[stepIdx+1]
+		alphaProdTPrev := e.alphasCumprod[tPrev]
+		sqrtAlphaProdTPrev := float32(math.Sqrt(float64(alphaProdTPrev)))
+		sqrtBetaProdTPrev := float32(math.Sqrt(float64(1.0 - alphaProdTPrev)))
+
+		// Sample Gaussian noise
+		noise := make([]float32, latentSize)
+		for i := 0; i < latentSize; i++ {
+			noise[i] = float32(rng.NormFloat64())
+		}
+
+		// LCM prev_sample step formula
+		updated := make([]float32, latentSize)
+		for i := 0; i < latentSize; i++ {
+			updated[i] = sqrtAlphaProdTPrev*denoised[i] + sqrtBetaProdTPrev*noise[i]
+		}
+		return updated, nil
+	}
+
+	return denoised, nil
 }
 
 // decodeLatents runs the VAE decoder on the final latent tensor.
@@ -342,6 +450,10 @@ func lcmTimesteps(steps int) []int {
 	}
 	// Standard LCM schedule: evenly spaced in [999, 0]
 	ts := make([]int, steps)
+	if steps == 1 {
+		ts[0] = 999
+		return ts
+	}
 	for i := 0; i < steps; i++ {
 		ts[i] = 999 - i*(999/(steps-1))
 		if ts[i] < 0 {
@@ -426,4 +538,24 @@ func clampUint8(v float32) uint8 {
 		v = 1
 	}
 	return uint8(v * 255)
+}
+
+func (e *Engine) initScheduler() {
+	betaStart := 0.00085
+	betaEnd := 0.0120
+	start := math.Sqrt(betaStart)
+	end := math.Sqrt(betaEnd)
+
+	betas := make([]float64, 1000)
+	for i := 0; i < 1000; i++ {
+		val := start + float64(i)*(end-start)/999.0
+		betas[i] = val * val
+	}
+
+	product := 1.0
+	for i := 0; i < 1000; i++ {
+		alpha := 1.0 - betas[i]
+		product *= alpha
+		e.alphasCumprod[i] = float32(product)
+	}
 }

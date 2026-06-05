@@ -119,7 +119,20 @@ func (e *Engine) Initialize(modelDir string, opts engine.Options) error {
 	load := func(name string) (*ort.DynamicAdvancedSession, error) {
 		path := filepath.Join(modelDir, name)
 		if _, err := os.Stat(path); err != nil {
-			return nil, fmt.Errorf("model file not found: %s", path)
+			// Try subdirectory fallback (e.g. text_encoder.onnx -> text_encoder/model.onnx)
+			base := strings.TrimSuffix(name, ".onnx")
+			fallbackPath := filepath.Join(modelDir, base, "model.onnx")
+			if _, errSub := os.Stat(fallbackPath); errSub == nil {
+				path = fallbackPath
+			} else {
+				// Try base/name (e.g. text_encoder/text_encoder.onnx)
+				fallbackPath2 := filepath.Join(modelDir, base, name)
+				if _, errSub2 := os.Stat(fallbackPath2); errSub2 == nil {
+					path = fallbackPath2
+				} else {
+					return nil, fmt.Errorf("model file not found: %s", path)
+				}
+			}
 		}
 		ins, outs, err := ort.GetInputOutputInfo(path)
 		if err != nil {

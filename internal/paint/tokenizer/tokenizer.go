@@ -41,7 +41,7 @@ func NewClipTokenizer(modelDir string) (*ClipTokenizer, error) {
 		u2b:      make(map[rune]byte),
 		bpeRanks: make(map[Pair]int),
 		cache:    make(map[string][]string),
-		re:       regexp.MustCompile(`(?i)'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+`),
+		re:       regexp.MustCompile(`(?i)<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+`),
 	}
 
 	for k, v := range t.b2u {
@@ -156,14 +156,16 @@ func (t *ClipTokenizer) bpe(token string) []string {
 		return val
 	}
 
-	word := make([]string, 0, len(token))
-	for _, r := range token {
-		word = append(word, string(r))
-	}
-
-	if len(word) == 0 {
+	runes := []rune(token)
+	if len(runes) == 0 {
 		return nil
 	}
+
+	word := make([]string, len(runes))
+	for i := 0; i < len(runes)-1; i++ {
+		word[i] = string(runes[i])
+	}
+	word[len(runes)-1] = string(runes[len(runes)-1]) + "</w>"
 
 	for {
 		pairs := getPairs(word)
