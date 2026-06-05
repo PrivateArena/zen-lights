@@ -55,3 +55,5 @@ sfizz.log
 node_modules/
 *.log
 *.png
+models_*/
+*.onnx
