@@ -57,3 +57,5 @@ node_modules/
 *.png
 models_*/
 *.onnx
+*.svg
+assets/svg/data/

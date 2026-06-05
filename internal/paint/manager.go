@@ -10,6 +10,7 @@ import (
 	"github.com/zen-lights/zen-lights/internal/paint/engine"
 	"github.com/zen-lights/zen-lights/internal/paint/flux"
 	"github.com/zen-lights/zen-lights/internal/paint/sdxl"
+	"github.com/zen-lights/zen-lights/internal/paint/svg"
 )
 
 // Manager coordinates the lifecycle of active ONNX models and limits concurrency.
@@ -112,6 +113,8 @@ func (m *Manager) LoadEngine(modelName string) error {
 		eng = &sdxl.Engine{}
 	case "flux", "bonsai":
 		eng = &flux.Engine{}
+	case "svg":
+		eng = &svg.Engine{}
 	default:
 		return fmt.Errorf("unknown model architecture %q", arch)
 	}
