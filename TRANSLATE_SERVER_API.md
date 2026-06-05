@@ -25,11 +25,11 @@ The translate server behavior is controlled under the `"translation"` block in `
     "profiles": [
       {
         "id": "ja-en",
-        "encoder_path": "/media/jang/home/Deve/zen-lights/models/ja-en/encoder_model.onnx",
-        "decoder_path": "/media/jang/home/Deve/zen-lights/models/ja-en/decoder_model.onnx",
-        "source_spm": "/media/jang/home/Deve/zen-lights/models/ja-en/source.spm",
-        "target_spm": "/media/jang/home/Deve/zen-lights/models/ja-en/target.spm",
-        "vocab_path": "/media/jang/home/Deve/zen-lights/models/ja-en/vocab.json",
+        "encoder_path": "models_ocr/ja-en/encoder_model.onnx",
+        "decoder_path": "models_ocr/ja-en/decoder_model.onnx",
+        "source_spm": "models_ocr/ja-en/source.spm",
+        "target_spm": "models_ocr/ja-en/target.spm",
+        "vocab_path": "models_ocr/ja-en/vocab.json",
         "eos_token_id": 0,
         "pad_token_id": 65000
       }

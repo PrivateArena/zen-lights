@@ -25,8 +25,8 @@ func TestComparativeOCR(t *testing.T) {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
 	opts := DefaultOptions()
-	opts.RecModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx"
-	opts.RecVocabPath = "/media/jang/home/Deve/zen-lights/models/ch_dict.txt"
+	opts.RecModelPath = "models_ocr/ch_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "models_ocr/ch_dict.txt"
 
 	client, err := New(opts)
 	if err != nil {
@@ -99,9 +99,9 @@ func TestFullPipelineIntegration(t *testing.T) {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
 	opts := DefaultOptions()
-	opts.RecModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_rec_infer.onnx"
-	opts.RecVocabPath = "/media/jang/home/Deve/zen-lights/models/ch_dict.txt"
-	opts.DetModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+	opts.RecModelPath = "models_ocr/ch_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "models_ocr/ch_dict.txt"
+	opts.DetModelPath = "models_ocr/ch_PP-OCRv4_det_infer.onnx"
 
 	client, err := New(opts)
 	if err != nil {
@@ -172,9 +172,9 @@ func TestMangaFullPageOCR(t *testing.T) {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
 	opts := DefaultOptions()
-	opts.RecModelPath = "/media/jang/home/Deve/zen-lights/models/japan_PP-OCRv4_rec_infer.onnx"
-	opts.RecVocabPath = "/media/jang/home/Deve/zen-lights/models/japan_dict.txt"
-	opts.DetModelPath = "/media/jang/home/Deve/zen-lights/models/ch_PP-OCRv4_det_infer.onnx"
+	opts.RecModelPath = "models_ocr/japan_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "models_ocr/japan_dict.txt"
+	opts.DetModelPath = "models_ocr/ch_PP-OCRv4_det_infer.onnx"
 
 	client, err := New(opts)
 	if err != nil {
@@ -240,11 +240,11 @@ func TestMangaFullPageOCR(t *testing.T) {
 	recStart := time.Now()
 
 	type regionResult struct {
-		idx   int
-		box   image.Rectangle
-		text  string
-		conf  float32
-		dur   time.Duration
+		idx  int
+		box  image.Rectangle
+		text string
+		conf float32
+		dur  time.Duration
 	}
 	var recognized []regionResult
 

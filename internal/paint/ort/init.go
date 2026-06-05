@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -52,7 +53,10 @@ func Init(libPath string) error {
 
 		fmt.Println("[ort] using:", libPath)
 		ort.SetSharedLibraryPath(libPath)
-		initErr = ort.InitializeEnvironment()
+		err := ort.InitializeEnvironment()
+		if err != nil && !strings.Contains(err.Error(), "already been initialized") {
+			initErr = err
+		}
 	})
 	return initErr
 }
