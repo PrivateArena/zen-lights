@@ -124,6 +124,12 @@ func New(opts Options) (*Client, error) {
 	}
 	// Split and clean up lines (remove CR if present on Windows-origin files)
 	activeVocab := strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
+	for len(activeVocab) > 0 && activeVocab[len(activeVocab)-1] == "" {
+		activeVocab = activeVocab[:len(activeVocab)-1]
+	}
+	if len(activeVocab) > 0 && activeVocab[0] == "blank" {
+		activeVocab = activeVocab[1:]
+	}
 
 	// Resolve recognizer model path
 	recModelPath := opts.RecModelPath

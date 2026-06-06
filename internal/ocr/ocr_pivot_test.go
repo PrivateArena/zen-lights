@@ -25,8 +25,8 @@ func TestComparativeOCR(t *testing.T) {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
 	opts := DefaultOptions()
-	opts.RecModelPath = "models_ocr/ch_PP-OCRv4_rec_infer.onnx"
-	opts.RecVocabPath = "models_ocr/ch_dict.txt"
+	opts.RecModelPath = "../../models_ocr/ch_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "../../models_ocr/ch_dict.txt"
 
 	client, err := New(opts)
 	if err != nil {
@@ -99,9 +99,9 @@ func TestFullPipelineIntegration(t *testing.T) {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
 	opts := DefaultOptions()
-	opts.RecModelPath = "models_ocr/ch_PP-OCRv4_rec_infer.onnx"
-	opts.RecVocabPath = "models_ocr/ch_dict.txt"
-	opts.DetModelPath = "models_ocr/ch_PP-OCRv4_det_infer.onnx"
+	opts.RecModelPath = "../../models_ocr/ch_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "../../models_ocr/ch_dict.txt"
+	opts.DetModelPath = "../../models_ocr/ch_PP-OCRv4_det_infer.onnx"
 
 	client, err := New(opts)
 	if err != nil {
@@ -172,9 +172,9 @@ func TestMangaFullPageOCR(t *testing.T) {
 		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
 	}
 	opts := DefaultOptions()
-	opts.RecModelPath = "models_ocr/japan_PP-OCRv4_rec_infer.onnx"
-	opts.RecVocabPath = "models_ocr/japan_dict.txt"
-	opts.DetModelPath = "models_ocr/ch_PP-OCRv4_det_infer.onnx"
+	opts.RecModelPath = "../../models_ocr/japan_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "../../models_ocr/japan_dict.txt"
+	opts.DetModelPath = "../../models_ocr/ch_PP-OCRv4_det_infer.onnx"
 
 	client, err := New(opts)
 	if err != nil {
@@ -344,4 +344,73 @@ func TestMangaFullPageOCR(t *testing.T) {
 
 	// Suppress unused import
 	_ = fmt.Sprint
+}
+
+func TestEnglishOCR(t *testing.T) {
+	// Set dynamic library overrides
+	libPath := "/media/jang/home/Deve/zen-tts/piper/libonnxruntime.so.1.24.2"
+	if _, err := os.Stat(libPath); err != nil {
+		t.Fatalf("libonnxruntime.so not found at %s: %v", libPath, err)
+	}
+	opts := DefaultOptions()
+	opts.RecModelPath = "../../models_ocr/en_PP-OCRv4_rec_infer.onnx"
+	opts.RecVocabPath = "../../models_ocr/en_dict.txt"
+	opts.DetModelPath = "../../models_ocr/ch_PP-OCRv4_det_infer.onnx"
+
+	client, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Load integration test image
+	imagePath := "/tmp/zen-cap/screenshot_region_20260606_113112.png"
+	imgFile, err := os.Open(imagePath)
+	if err != nil {
+		t.Fatalf("Failed to open test image: %v", err)
+	}
+	defer imgFile.Close()
+
+	decodedImg, _, err := image.Decode(imgFile)
+	if err != nil {
+		t.Fatalf("Failed to decode image: %v", err)
+	}
+
+	b := decodedImg.Bounds()
+	w, h := b.Dx(), b.Dy()
+	frameData := make([]byte, w*h*3)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c := decodedImg.At(b.Min.X+x, b.Min.Y+y)
+			r, g, bl, _ := c.RGBA()
+			idx := (y*w + x) * 3
+			frameData[idx] = uint8(r >> 8)
+			frameData[idx+1] = uint8(g >> 8)
+			frameData[idx+2] = uint8(bl >> 8)
+		}
+	}
+
+	results, err := client.ReadFullFrame(frameData, w, h)
+	if err != nil {
+		t.Fatalf("ReadFullFrame failed: %v", err)
+	}
+
+	t.Logf("Detected %d English text regions:", len(results))
+	var foundNotoSans, foundGoogleFonts bool
+	for i, res := range results {
+		t.Logf("  [%d] Box: %v | Text: %q (Conf: %.4f)", i, res.Bounds, res.Text, res.Confidence)
+		if strings.Contains(strings.ToLower(res.Text), "noto sans") {
+			foundNotoSans = true
+		}
+		if strings.Contains(strings.ToLower(res.Text), "google fonts") {
+			foundGoogleFonts = true
+		}
+	}
+
+	if !foundNotoSans {
+		t.Errorf("Expected English OCR to detect 'Noto Sans', got results: %v", results)
+	}
+	if !foundGoogleFonts {
+		t.Errorf("Expected English OCR to detect 'Google Fonts', got results: %v", results)
+	}
 }

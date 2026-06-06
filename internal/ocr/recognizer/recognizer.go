@@ -230,6 +230,14 @@ func resizeBilinear(img *image.NRGBA, w, h int) *image.NRGBA {
 
 // ctcGreedyDecode decodes prediction logits using CTC greedy search.
 func ctcGreedyDecode(preds []float32, seqLen, numClasses int, keys []string) (string, float32) {
+	// If model output classes are larger than vocabulary + 1 (blank),
+	// it usually means a space character or others are dynamically added at the end.
+	if numClasses > len(keys)+1 {
+		for len(keys) < numClasses-1 {
+			keys = append(keys, " ")
+		}
+	}
+
 	var sb strings.Builder
 	lastIdx := -1
 	var confSum float32
@@ -250,8 +258,9 @@ func ctcGreedyDecode(preds []float32, seqLen, numClasses int, keys []string) (st
 
 		// Filter blank (0) and duplicates
 		if maxIdx != 0 && maxIdx != lastIdx {
-			if maxIdx < len(keys) {
-				sb.WriteString(keys[maxIdx])
+			vocabIdx := maxIdx - 1
+			if vocabIdx >= 0 && vocabIdx < len(keys) {
+				sb.WriteString(keys[vocabIdx])
 				confSum += maxVal
 				confCount++
 			}
