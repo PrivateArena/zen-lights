@@ -26,6 +26,16 @@ type GenerateRequest struct {
 	Steps          int     `json:"steps"`
 	Seed           int64   `json:"seed"`
 	CFGScale       float32 `json:"cfg_scale"`
+
+	// Pixel art specific parameters
+	PixelSize    int    `json:"pixel_size,omitempty"`
+	Palette      string `json:"palette,omitempty"`
+	PaletteSize  int    `json:"palette_size,omitempty"`
+	Outline      bool   `json:"outline,omitempty"`
+	OutlineColor string `json:"outline_color,omitempty"`
+	Transparent  bool   `json:"transparent,omitempty"`
+	CleanDoubles bool   `json:"clean_doubles,omitempty"`
+	Dither       bool   `json:"dither,omitempty"`
 }
 
 // GenerateResult is returned on successful generation.

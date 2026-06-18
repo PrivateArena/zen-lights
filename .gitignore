@@ -59,3 +59,4 @@ models_*/
 *.onnx
 *.svg
 assets/svg/data/
+.zen-tree-cache.json

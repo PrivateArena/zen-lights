@@ -3,6 +3,7 @@
 The `zenlights` unified server integrates a production-grade, local image generation engine (ported from `zen-paint`). It supports ONNX-based Text-to-Image models using dual architectures:
 1. **SDXL / SDXL-Turbo / LCM**: Fast, high-quality latent diffusion pipelines.
 2. **FLUX.2 / Bonsai**: Multi-modal Diffusion Transformer (MMDiT) flow-matching pipelines.
+3. **Pixel Studio (pixel)**: Production-ready pixelated asset generation with transparency flood-fill, downsampling grids, color quantization (presets + custom K-Means), outline generation, and diagonal line cleanup.
 
 All inference is performed locally using **ONNX Runtime** and can utilize CPU multi-threading or hardware acceleration (CUDA, ROCm, DirectML, OpenVINO).
 
@@ -118,6 +119,14 @@ Generates a new PNG image from a text prompt.
   * `height` (Integer, optional): Height of the image. Defaults to `512`.
   * `steps` (Integer, optional): Number of denoising inference steps. Defaults to `4`.
   * `seed` (Integer, optional): Random seed. Defaults to current timestamp.
+  * `pixel_size` (Integer, optional): Target grid size (e.g. `16`, `32`, `64`, `128`) for pixel art. Defaults to `64`. (Only used by `pixel` architecture).
+  * `palette` (String, optional): Palette preset (`"pico8"`, `"gameboy"`, `"nes"`, `"c64"`, `"custom"`). Defaults to `"custom"`. (Only used by `pixel` architecture).
+  * `palette_size` (Integer, optional): Max colors for custom palette extraction. Defaults to `16`.
+  * `outline` (Boolean, optional): Generates an outline around transparent shapes. Defaults to `true`.
+  * `outline_color` (String, optional): Hex color (e.g. `"#ff0000"` or `"#000000"`) for custom outline colors.
+  * `transparent` (Boolean, optional): Automatically key out/flood-fill solid backgrounds. Defaults to `true`.
+  * `clean_doubles` (Boolean, optional): Cleans L-shaped double pixels on diagonals. Defaults to `true`.
+  * `dither` (Boolean, optional): Apply Floyd-Steinberg error diffusion dithering (only with preset palettes). Defaults to `false`.
 * **Sample Request:**
   ```json
   {

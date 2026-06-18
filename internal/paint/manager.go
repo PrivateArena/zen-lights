@@ -9,6 +9,7 @@ import (
 
 	"github.com/zen-lights/zen-lights/internal/paint/engine"
 	"github.com/zen-lights/zen-lights/internal/paint/flux"
+	"github.com/zen-lights/zen-lights/internal/paint/pixel"
 	"github.com/zen-lights/zen-lights/internal/paint/sdxl"
 	"github.com/zen-lights/zen-lights/internal/paint/svg"
 )
@@ -115,6 +116,8 @@ func (m *Manager) LoadEngine(modelName string) error {
 		eng = &flux.Engine{}
 	case "svg":
 		eng = &svg.Engine{}
+	case "pixel":
+		eng = &pixel.Engine{}
 	default:
 		return fmt.Errorf("unknown model architecture %q", arch)
 	}
