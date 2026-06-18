@@ -1,0 +1,43 @@
+# Air configuration file in TOML format
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main main.go"
+  bin = "./tmp/main"
+  args_bin = ["server", "-addr", "127.0.0.1:8765", "-config", "config.json"]
+  delay = 1000
+  exclude_dir = ["assets", "tmp", "models", "models_paint", ".git", ".zenmcp", "test", "node_modules"]
+  exclude_file = []
+  exclude_regex = ["_test.go"]
+  exclude_unchanged = true
+  follow_symlink = true
+  include_dir = []
+  include_ext = ["go", "json", "yaml", "toml", "html"]
+  include_file = []
+  kill_delay = "500ms"
+  log = "build-errors.log"
+  poll = false
+  poll_interval = 0
+  post_cmd = []
+  pre_cmd = []
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = true
+  stop_on_error = true
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[misc]
+  clean_on_exit = true
